@@ -15,10 +15,15 @@ alter table projects enable row level security;
 alter table tasks enable row level security;
 alter table logs enable row level security;
 
+-- projects/tasks already have a wide-open "allow all" policy (using (true)) from
+-- the original setup script. RLS OR's permissive policies together, so it has to
+-- be dropped or it would keep letting anyone in regardless of the policy below.
+drop policy if exists "allow all" on projects;
 drop policy if exists "authenticated only" on projects;
 create policy "authenticated only" on projects
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 
+drop policy if exists "allow all" on tasks;
 drop policy if exists "authenticated only" on tasks;
 create policy "authenticated only" on tasks
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
