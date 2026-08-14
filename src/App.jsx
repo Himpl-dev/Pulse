@@ -3,6 +3,7 @@ import { supabase } from './supabaseClient';
 import {
   Users, Clock, AlertTriangle, Calendar, TrendingUp, PieChart as PieChartIcon,
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
+  NotebookPen, LogOut, Copy, Check, Sparkles, Loader2,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -70,10 +71,19 @@ const TABS = [
   { id: 'timeline', label: 'Timeline', icon: Calendar },
   { id: 'customers', label: 'Customers', icon: Building2 },
   { id: 'projects', label: 'Projects', icon: FolderKanban },
+  { id: 'logs', label: 'Logs', icon: NotebookPen },
+];
+
+const LOG_TAGS = [
+  { id: 'progress', label: 'Progress', color: TOKENS.teal },
+  { id: 'praise', label: 'Praise', color: TOKENS.blue },
+  { id: 'concern', label: 'Concern', color: TOKENS.coral },
+  { id: 'general', label: 'General', color: TOKENS.textMuted },
 ];
 
 const INITIAL_PROJECTS = [];
 const INITIAL_TASKS = [];
+const INITIAL_LOGS = [];
 
 /* --------------------------------- helpers ---------------------------------- */
 
@@ -121,6 +131,12 @@ function taskFromRow(r) {
 }
 function taskToRow(t) {
   return { id: t.id, title: t.title, assignees: t.assignees, priority: t.priority, due: t.due, status: t.status, project_id: t.projectId };
+}
+function logFromRow(r) {
+  return { id: r.id, personId: r.person_id, note: r.note, tag: r.tag, createdAt: r.created_at };
+}
+function logToRow(l) {
+  return { id: l.id, person_id: l.personId, note: l.note, tag: l.tag, created_at: l.createdAt };
 }
 
 /* -------------------------------- primitives -------------------------------- */
@@ -195,6 +211,42 @@ function PulseDot({ color, pulse, size = 8 }) {
       )}
       <span style={{ position: 'relative', width: size, height: size, borderRadius: '9999px', background: color, border: `2px solid ${TOKENS.bg}` }} />
     </span>
+  );
+}
+
+function LoginScreen({ onSignIn }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    setError('');
+    setSubmitting(true);
+    const { error: signInError } = await onSignIn(email.trim(), password);
+    setSubmitting(false);
+    if (signInError) setError(signInError.message || 'Sign-in failed');
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center font-body px-4" style={{ background: TOKENS.bg, color: TOKENS.text }}>
+      <form onSubmit={submit} className="w-full max-w-sm rounded-xl p-6" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
+        <div className="mb-5">
+          <Logo />
+        </div>
+        <h1 className="font-display font-semibold text-lg mb-1">Sign in</h1>
+        <p className="text-xs mb-5" style={{ color: TOKENS.textFaint }}>Private dashboard — sign in to continue.</p>
+        <div className="flex flex-col gap-2 mb-3">
+          <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="rounded-lg px-3 py-2 text-sm" style={inputStyle} />
+          <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" className="rounded-lg px-3 py-2 text-sm" style={inputStyle} />
+        </div>
+        {error && <p className="text-xs mb-3" style={{ color: TOKENS.coral }}>{error}</p>}
+        <button type="submit" disabled={submitting} className="w-full px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-60" style={{ background: TOKENS.blue, color: '#0B0D11' }}>
+          {submitting ? 'Signing in…' : 'Sign in'}
+        </button>
+      </form>
+    </div>
   );
 }
 
@@ -404,11 +456,213 @@ function TimelineSection({ title, icon: Icon, color, items }) {
   );
 }
 
+function CopyButton({ text, label = 'Copy' }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.error('Copy failed', err);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium flex-shrink-0"
+      style={{ background: TOKENS.surface2, color: TOKENS.textMuted, border: `1px solid ${TOKENS.border}` }}
+    >
+      {copied ? <Check size={13} style={{ color: TOKENS.teal }} /> : <Copy size={13} />}
+      {(copied || label) && (copied ? 'Copied' : label)}
+    </button>
+  );
+}
+
+function AddLogForm({ onAdd }) {
+  const [note, setNote] = useState('');
+  const [tag, setTag] = useState('progress');
+
+  function submit(e) {
+    e.preventDefault();
+    if (!note.trim()) return;
+    onAdd({ note: note.trim(), tag });
+    setNote('');
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-2 mb-4 p-3 rounded-xl" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
+      <textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Quick note about behaviour or progress…"
+        rows={2}
+        className="rounded-lg px-3 py-2 text-sm resize-none"
+        style={inputStyle}
+      />
+      <div className="flex items-center gap-2 flex-wrap">
+        <select value={tag} onChange={(e) => setTag(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle}>
+          {LOG_TAGS.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+        </select>
+        <button type="submit" className="px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5" style={{ background: TOKENS.blue, color: '#0B0D11' }}>
+          <Plus size={14} /> Add log
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function formatLogTimestamp(iso) {
+  return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function formatLogsAsText(personName, entries) {
+  if (entries.length === 0) return `${personName} — no log entries yet.`;
+  const lines = entries.map((e) => `[${formatLogTimestamp(e.createdAt)}]${e.tag ? ` (${LOG_TAGS.find((t) => t.id === e.tag)?.label || e.tag})` : ''} ${e.note}`);
+  return `${personName} — log entries\n\n${lines.join('\n')}`;
+}
+
+function LogsPanel({ logs, onAdd, onDelete, accessToken }) {
+  const [personId, setPersonId] = useState(TEAM[0].id);
+  const [summary, setSummary] = useState('');
+  const [summarizing, setSummarizing] = useState(false);
+  const [summaryError, setSummaryError] = useState('');
+
+  const person = TEAM.find((m) => m.id === personId);
+  const entries = logs
+    .filter((l) => l.personId === personId)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  function switchPerson(id) {
+    setPersonId(id);
+    setSummary('');
+    setSummaryError('');
+  }
+
+  async function summarize() {
+    setSummarizing(true);
+    setSummaryError('');
+    setSummary('');
+    try {
+      const res = await fetch('/api/summarize', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({
+          person: person.name,
+          entries: entries.map((e) => ({ note: e.note, tag: e.tag, created_at: e.createdAt })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Summary failed');
+      setSummary(data.summary || '');
+    } catch (err) {
+      setSummaryError(err.message || 'Summary failed');
+    } finally {
+      setSummarizing(false);
+    }
+  }
+
+  return (
+    <div className="max-w-3xl">
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        {TEAM.map((m) => (
+          <button
+            key={m.id}
+            onClick={() => switchPerson(m.id)}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm"
+            style={{
+              background: personId === m.id ? hexToRgba(m.color, 0.15) : TOKENS.surface,
+              border: `1px solid ${personId === m.id ? hexToRgba(m.color, 0.4) : TOKENS.border}`,
+              color: personId === m.id ? TOKENS.text : TOKENS.textMuted,
+            }}
+          >
+            <span className="w-5 h-5 rounded-full flex items-center justify-center font-display" style={{ fontSize: 9, background: hexToRgba(m.color, 0.2), color: m.color }}>
+              {m.initials}
+            </span>
+            {m.name}
+          </button>
+        ))}
+      </div>
+
+      <AddLogForm onAdd={(l) => onAdd(personId, l)} />
+
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <span className="text-xs font-medium uppercase tracking-wider" style={{ color: TOKENS.textFaint }}>
+          {entries.length} {entries.length === 1 ? 'entry' : 'entries'} for {person.name}
+        </span>
+        <div className="flex items-center gap-2">
+          <CopyButton text={formatLogsAsText(person.name, entries)} label="Copy all" />
+          <button
+            type="button"
+            onClick={summarize}
+            disabled={entries.length === 0 || summarizing}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-40"
+            style={{ background: hexToRgba(TOKENS.violet, 0.15), color: TOKENS.violet, border: `1px solid ${hexToRgba(TOKENS.violet, 0.4)}` }}
+          >
+            {summarizing ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+            {summarizing ? 'Summarizing…' : 'Summarize'}
+          </button>
+        </div>
+      </div>
+
+      {summaryError && <p className="text-xs mb-3" style={{ color: TOKENS.coral }}>{summaryError}</p>}
+
+      {summary && (
+        <div className="rounded-xl p-4 mb-4" style={{ background: hexToRgba(TOKENS.violet, 0.08), border: `1px solid ${hexToRgba(TOKENS.violet, 0.3)}` }}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium uppercase tracking-wider flex items-center gap-1.5" style={{ color: TOKENS.violet }}>
+              <Sparkles size={12} /> Summary
+            </span>
+            <CopyButton text={summary} label="Copy" />
+          </div>
+          <p className="text-sm whitespace-pre-wrap leading-relaxed" style={{ color: TOKENS.text }}>{summary}</p>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {entries.length === 0 && (
+          <p className="text-xs italic" style={{ color: TOKENS.textFaint }}>No log entries yet for {person.name}.</p>
+        )}
+        {entries.map((entry) => {
+          const tagInfo = LOG_TAGS.find((t) => t.id === entry.tag);
+          return (
+            <div key={entry.id} className="rounded-lg p-3" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
+              <div className="flex items-start justify-between gap-2 mb-1.5">
+                <div className="flex items-center gap-2">
+                  {tagInfo && (
+                    <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: hexToRgba(tagInfo.color, 0.15), color: tagInfo.color }}>
+                      {tagInfo.label}
+                    </span>
+                  )}
+                  <span className="font-mono text-xs" style={{ color: TOKENS.textFaint }}>{formatLogTimestamp(entry.createdAt)}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <CopyButton text={entry.note} label="" />
+                  <button onClick={() => onDelete(entry.id)} className="p-1 rounded" style={{ color: TOKENS.textMuted }} aria-label="Delete log entry">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+              <p className="text-sm whitespace-pre-wrap" style={{ color: TOKENS.text }}>{entry.note}</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ----------------------------------- app ------------------------------------ */
 
 export default function App() {
+  const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [projects, setProjects] = useState(INITIAL_PROJECTS);
   const [tasks, setTasks] = useState(INITIAL_TASKS);
+  const [logs, setLogs] = useState(INITIAL_LOGS);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [activeTab, setActiveTab] = useState('projects');
   const [selectedMember, setSelectedMember] = useState(null);
@@ -419,20 +673,45 @@ export default function App() {
   const currentProject = projects.find((p) => p.id === selectedProjectId) || null;
   const projectTasks = tasks.filter((t) => t.projectId === selectedProjectId);
 
-  // Load shared team data from Supabase once on mount.
+  // Track the signed-in session; the app renders a login gate until one exists.
   useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthLoading(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  async function signIn(email, password) {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    return { error };
+  }
+  async function signOut() {
+    await supabase.auth.signOut();
+  }
+
+  // Load private data from Supabase once signed in.
+  useEffect(() => {
+    if (!session) return;
     (async () => {
-      const [{ data: projectRows, error: projErr }, { data: taskRows, error: taskErr }] = await Promise.all([
+      setLoading(true);
+      const [{ data: projectRows, error: projErr }, { data: taskRows, error: taskErr }, { data: logRows, error: logErr }] = await Promise.all([
         supabase.from('projects').select('*'),
         supabase.from('tasks').select('*'),
+        supabase.from('logs').select('*'),
       ]);
       if (projErr) console.error('Failed to load projects', projErr);
       if (taskErr) console.error('Failed to load tasks', taskErr);
+      if (logErr) console.error('Failed to load logs', logErr);
       setProjects((projectRows || []).map(projectFromRow));
       setTasks((taskRows || []).map(taskFromRow));
+      setLogs((logRows || []).map(logFromRow));
       setLoading(false);
     })();
-  }, []);
+  }, [session]);
 
   async function addProject({ name, subtitle, deadline, customerId }) {
     const id = `p${projects.length}-${name.toLowerCase().replace(/\s+/g, '-')}-${Math.round(Math.random() * 1e6)}`;
@@ -488,6 +767,19 @@ export default function App() {
       const { error } = await supabase.from('tasks').update({ status: newStatus }).eq('id', id);
       if (error) console.error('Failed to update task status', error);
     }
+  }
+
+  async function addLog(personId, { note, tag }) {
+    const id = crypto.randomUUID();
+    const log = { id, personId, note, tag, createdAt: new Date().toISOString() };
+    setLogs((prev) => [...prev, log]);
+    const { error } = await supabase.from('logs').insert(logToRow(log));
+    if (error) console.error('Failed to save log', error);
+  }
+  async function deleteLog(id) {
+    setLogs((prev) => prev.filter((l) => l.id !== id));
+    const { error } = await supabase.from('logs').delete().eq('id', id);
+    if (error) console.error('Failed to delete log', error);
   }
 
   // Team-wide workload stats — deliberately span every project, not just the active one.
@@ -546,6 +838,18 @@ export default function App() {
   const deadlineDays = currentProject?.deadline ? daysUntil(currentProject.deadline) : null;
   const selectedMemberObj = TEAM.find((m) => m.id === selectedMember) || null;
   const filteredTasks = selectedMember ? projectTasks.filter((t) => t.assignees.includes(selectedMember)) : projectTasks;
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center font-body" style={{ background: TOKENS.bg, color: TOKENS.textFaint }}>
+        <p className="text-sm italic">Loading…</p>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <LoginScreen onSignIn={signIn} />;
+  }
 
   return (
     <div className="min-h-screen font-body" style={{ background: TOKENS.bg, color: TOKENS.text }}>
@@ -643,6 +947,10 @@ export default function App() {
           <RadialProgress pct={overall.pct} size={40} stroke={4} color={overall.tone}>
             <span className="font-mono" style={{ fontSize: 9, color: TOKENS.text }}>{overall.pct}%</span>
           </RadialProgress>
+
+          <button onClick={signOut} className="p-2 rounded-full" style={{ background: TOKENS.surface }} aria-label="Sign out" title="Sign out">
+            <LogOut size={15} style={{ color: TOKENS.textMuted }} />
+          </button>
         </div>
       </header>
 
@@ -1003,6 +1311,10 @@ export default function App() {
                   </div>
                 </div>
               </div>
+            )}
+
+            {activeTab === 'logs' && (
+              <LogsPanel logs={logs} onAdd={addLog} onDelete={deleteLog} accessToken={session.access_token} />
             )}
           </div>
           )}
