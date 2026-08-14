@@ -889,15 +889,15 @@ export default function App() {
           </div>
         </div>
 
-        <nav className="flex items-center gap-1 p-1 rounded-full" style={{ background: TOKENS.surface }}>
+        <nav className="flex items-center gap-1 p-1 rounded-full w-full sm:w-auto overflow-x-auto" style={{ background: TOKENS.surface }}>
           {TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className="px-3 py-1.5 rounded-full text-sm flex items-center gap-1.5 transition-colors"
+              className="px-3 py-1.5 rounded-full text-sm flex items-center gap-1.5 transition-colors flex-shrink-0"
               style={{ background: activeTab === tab.id ? TOKENS.surface2 : 'transparent', color: activeTab === tab.id ? TOKENS.text : TOKENS.textMuted }}
             >
-              <tab.icon size={14} /> {tab.label}
+              <tab.icon size={14} /> <span className="hidden sm:inline">{tab.label}</span>
             </button>
           ))}
         </nav>
