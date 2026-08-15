@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient';
 import {
   Users, Clock, AlertTriangle, Calendar, TrendingUp, PieChart as PieChartIcon,
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
-  NotebookPen, LogOut, Copy, Check, Sparkles, Loader2, Search,
+  NotebookPen, LogOut, Copy, Check, Sparkles, Loader2, Search, MessageSquare,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -92,6 +92,7 @@ const INITIAL_PROJECTS = [];
 const INITIAL_TASKS = [];
 const INITIAL_LOGS = [];
 const INITIAL_TEAM = [];
+const INITIAL_COMMENTS = [];
 
 /* --------------------------------- helpers ---------------------------------- */
 
@@ -151,6 +152,12 @@ function memberFromRow(r) {
 }
 function memberToRow(m) {
   return { id: m.id, name: m.name, role: m.role, color: m.color, initials: m.initials, skills: m.skills };
+}
+function commentFromRow(r) {
+  return { id: r.id, taskId: r.task_id, authorId: r.author_id, body: r.body, createdAt: r.created_at };
+}
+function commentToRow(c) {
+  return { id: c.id, task_id: c.taskId, author_id: c.authorId, body: c.body, created_at: c.createdAt };
 }
 
 /* -------------------------------- primitives -------------------------------- */
@@ -426,7 +433,7 @@ function AddTaskForm({ team, onAdd, onCancel }) {
   );
 }
 
-function TaskCard({ task, members, onMove, onDragStart, onDelete, canMoveLeft, canMoveRight, highlighted }) {
+function TaskCard({ task, members, onMove, onDragStart, onDelete, onOpen, canMoveLeft, canMoveRight, highlighted, commentCount }) {
   const tone = dueTone(task.due);
   const ref = useRef(null);
 
@@ -465,7 +472,13 @@ function TaskCard({ task, members, onMove, onDragStart, onDelete, canMoveLeft, c
           </button>
         </div>
       </div>
-      <p className="font-display font-semibold text-sm leading-snug mb-3" style={{ color: TOKENS.text }}>{task.title}</p>
+      <p
+        onClick={() => onOpen(task.id)}
+        className="font-display font-semibold text-sm leading-snug mb-3 cursor-pointer"
+        style={{ color: TOKENS.text }}
+      >
+        {task.title}
+      </p>
       <div className="flex items-center justify-between">
         <div className="flex items-center" style={{ marginLeft: 2 }}>
           {members.map((member) => (
@@ -479,7 +492,111 @@ function TaskCard({ task, members, onMove, onDragStart, onDelete, canMoveLeft, c
             </div>
           ))}
         </div>
-        <span className="font-mono text-xs" style={{ color: tone.color }}>{formatDue(task.due)}</span>
+        <div className="flex items-center gap-2">
+          {commentCount > 0 && (
+            <button
+              onClick={() => onOpen(task.id)}
+              className="flex items-center gap-1 font-mono text-xs"
+              style={{ color: TOKENS.textFaint }}
+              aria-label={`${commentCount} comments`}
+            >
+              <MessageSquare size={11} /> {commentCount}
+            </button>
+          )}
+          <span className="font-mono text-xs" style={{ color: tone.color }}>{formatDue(task.due)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TaskDetailModal({ task, project, members, team, comments, onClose, onAddComment, onDeleteComment }) {
+  const [authorId, setAuthorId] = useState(team[0]?.id || '');
+  const [body, setBody] = useState('');
+  const tone = dueTone(task.due);
+
+  const thread = comments
+    .filter((c) => c.taskId === task.id)
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+  function submit(e) {
+    e.preventDefault();
+    if (!body.trim() || !authorId) return;
+    onAddComment(authorId, body.trim());
+    setBody('');
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.55)' }} onClick={onClose}>
+      <div
+        className="w-full max-w-lg rounded-xl overflow-hidden flex flex-col animate-fadein"
+        style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}`, maxHeight: '85vh' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 p-4" style={{ borderBottom: `1px solid ${TOKENS.border}` }}>
+          <div className="min-w-0">
+            <p className="text-xs font-medium uppercase tracking-wide mb-1" style={{ color: PRIORITY_COLOR[task.priority] }}>
+              {task.priority} · {STATUS_LABEL[task.status]}
+            </p>
+            <h2 className="font-display font-semibold text-base leading-snug" style={{ color: TOKENS.text }}>{task.title}</h2>
+            {project && <p className="text-xs mt-1" style={{ color: TOKENS.textFaint }}>{project.name}</p>}
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ color: TOKENS.textMuted, flexShrink: 0 }}><X size={16} /></button>
+        </div>
+
+        <div className="flex items-center justify-between px-4 py-2.5 flex-wrap gap-2" style={{ borderBottom: `1px solid ${TOKENS.border}` }}>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {members.map((m) => (
+              <span key={m.id} className="px-2 py-1 rounded-full text-xs" style={{ background: hexToRgba(m.color, 0.12), color: m.color }}>
+                {m.name}
+              </span>
+            ))}
+            {members.length === 0 && <span className="text-xs italic" style={{ color: TOKENS.textFaint }}>Unassigned</span>}
+          </div>
+          <span className="font-mono text-xs flex-shrink-0" style={{ color: tone.color }}>{formatDue(task.due)}</span>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-2.5" style={{ minHeight: 80 }}>
+          {thread.length === 0 && <p className="text-xs italic" style={{ color: TOKENS.textFaint }}>No comments yet.</p>}
+          {thread.map((c) => {
+            const author = team.find((m) => m.id === c.authorId);
+            return (
+              <div key={c.id} className="rounded-lg p-2.5" style={{ background: TOKENS.surface2, border: `1px solid ${TOKENS.border}` }}>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="text-xs font-medium" style={{ color: author?.color || TOKENS.text }}>{author?.name || 'Former member'}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono" style={{ fontSize: 10, color: TOKENS.textFaint }}>{formatLogTimestamp(c.createdAt)}</span>
+                    <button onClick={() => onDeleteComment(c.id)} aria-label="Delete comment" style={{ color: TOKENS.textMuted }}><Trash2 size={12} /></button>
+                  </div>
+                </div>
+                <p className="text-sm whitespace-pre-wrap" style={{ color: TOKENS.text }}>{c.body}</p>
+              </div>
+            );
+          })}
+        </div>
+
+        {team.length === 0 ? (
+          <p className="text-xs italic px-4 py-3" style={{ color: TOKENS.textFaint, borderTop: `1px solid ${TOKENS.border}` }}>
+            Add a team member to leave a comment.
+          </p>
+        ) : (
+          <form onSubmit={submit} className="flex items-end gap-2 p-3" style={{ borderTop: `1px solid ${TOKENS.border}` }}>
+            <select value={authorId} onChange={(e) => setAuthorId(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm flex-shrink-0" style={inputStyle}>
+              {team.map((m) => <option key={m.id} value={m.id}>{m.name.split(' ')[0]}</option>)}
+            </select>
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="Add a comment…"
+              rows={1}
+              className="rounded-lg px-3 py-1.5 text-sm flex-1 resize-none"
+              style={inputStyle}
+            />
+            <button type="submit" className="px-3 py-1.5 rounded-lg text-sm font-medium flex-shrink-0" style={{ background: TOKENS.blue, color: '#0B0D11' }}>
+              Post
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );
@@ -839,6 +956,8 @@ export default function App() {
   const [tasks, setTasks] = useState(INITIAL_TASKS);
   const [logs, setLogs] = useState(INITIAL_LOGS);
   const [team, setTeam] = useState(INITIAL_TEAM);
+  const [comments, setComments] = useState(INITIAL_COMMENTS);
+  const [openTaskId, setOpenTaskId] = useState(null);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [activeTab, setActiveTab] = useState('projects');
   const [selectedMember, setSelectedMember] = useState(null);
@@ -897,20 +1016,29 @@ export default function App() {
     if (!session) return;
     (async () => {
       setLoading(true);
-      const [{ data: projectRows, error: projErr }, { data: taskRows, error: taskErr }, { data: logRows, error: logErr }, { data: teamRows, error: teamErr }] = await Promise.all([
+      const [
+        { data: projectRows, error: projErr },
+        { data: taskRows, error: taskErr },
+        { data: logRows, error: logErr },
+        { data: teamRows, error: teamErr },
+        { data: commentRows, error: commentErr },
+      ] = await Promise.all([
         supabase.from('projects').select('*'),
         supabase.from('tasks').select('*'),
         supabase.from('logs').select('*'),
         supabase.from('team_members').select('*'),
+        supabase.from('task_comments').select('*'),
       ]);
       if (projErr) console.error('Failed to load projects', projErr);
       if (taskErr) console.error('Failed to load tasks', taskErr);
       if (logErr) console.error('Failed to load logs', logErr);
       if (teamErr) console.error('Failed to load team', teamErr);
+      if (commentErr) console.error('Failed to load comments', commentErr);
       setProjects((projectRows || []).map(projectFromRow));
       setTasks((taskRows || []).map(taskFromRow));
       setLogs((logRows || []).map(logFromRow));
       setTeam((teamRows || []).map(memberFromRow));
+      setComments((commentRows || []).map(commentFromRow));
       setLoading(false);
     })();
   }, [session]);
@@ -931,21 +1059,29 @@ export default function App() {
   async function deleteProject(id) {
     const removedProject = projects.find((p) => p.id === id);
     const removedTasks = tasks.filter((t) => t.projectId === id);
+    const removedTaskIds = removedTasks.map((t) => t.id);
+    const removedComments = comments.filter((c) => removedTaskIds.includes(c.taskId));
     const taskLabel = removedTasks.length > 0 ? ` and its ${removedTasks.length} task${removedTasks.length === 1 ? '' : 's'}` : '';
     if (!window.confirm(`Delete "${removedProject?.name}"${taskLabel}? This can't be undone.`)) return;
 
     setProjects((prev) => prev.filter((p) => p.id !== id));
     setTasks((prev) => prev.filter((t) => t.projectId !== id));
+    setComments((prev) => prev.filter((c) => !removedTaskIds.includes(c.taskId)));
     setSelectedProjectId((prev) => (prev === id ? null : prev));
-    // Delete child tasks explicitly first — nothing here guarantees an ON DELETE
+    setOpenTaskId((prev) => (removedTaskIds.includes(prev) ? null : prev));
+    // Delete child rows explicitly first — nothing here guarantees an ON DELETE
     // CASCADE foreign key exists in the DB, so this keeps rows from being
     // orphaned even if one isn't set up.
+    const { error: commentsError } = removedTaskIds.length > 0
+      ? await supabase.from('task_comments').delete().in('task_id', removedTaskIds)
+      : { error: null };
     const { error: tasksError } = await supabase.from('tasks').delete().eq('project_id', id);
     const { error: projectError } = await supabase.from('projects').delete().eq('id', id);
-    if (tasksError || projectError) {
-      console.error('Failed to delete project', tasksError || projectError);
+    if (commentsError || tasksError || projectError) {
+      console.error('Failed to delete project', commentsError || tasksError || projectError);
       if (removedProject) setProjects((prev) => [...prev, removedProject]);
       setTasks((prev) => [...prev, ...removedTasks]);
+      setComments((prev) => [...prev, ...removedComments]);
       pushToast('Failed to delete project — try again.');
     }
   }
@@ -964,11 +1100,16 @@ export default function App() {
   async function deleteTask(id) {
     if (!window.confirm('Delete this task? This can\'t be undone.')) return;
     const removed = tasks.find((t) => t.id === id);
+    const removedComments = comments.filter((c) => c.taskId === id);
     setTasks((prev) => prev.filter((t) => t.id !== id));
-    const { error } = await supabase.from('tasks').delete().eq('id', id);
-    if (error) {
-      console.error('Failed to delete task', error);
+    setComments((prev) => prev.filter((c) => c.taskId !== id));
+    setOpenTaskId((prev) => (prev === id ? null : prev));
+    const { error: commentsError } = await supabase.from('task_comments').delete().eq('task_id', id);
+    const { error: taskError } = await supabase.from('tasks').delete().eq('id', id);
+    if (commentsError || taskError) {
+      console.error('Failed to delete task', commentsError || taskError);
       if (removed) setTasks((prev) => [...prev, removed]);
+      setComments((prev) => [...prev, ...removedComments]);
       pushToast('Failed to delete task — try again.');
     }
   }
@@ -1029,6 +1170,28 @@ export default function App() {
       console.error('Failed to delete log', error);
       if (removed) setLogs((prev) => [...prev, removed]);
       pushToast('Failed to delete log entry — try again.');
+    }
+  }
+
+  async function addComment(taskId, authorId, body) {
+    const id = crypto.randomUUID();
+    const comment = { id, taskId, authorId, body, createdAt: new Date().toISOString() };
+    setComments((prev) => [...prev, comment]);
+    const { error } = await supabase.from('task_comments').insert(commentToRow(comment));
+    if (error) {
+      console.error('Failed to save comment', error);
+      setComments((prev) => prev.filter((c) => c.id !== id));
+      pushToast('Failed to save comment — try again.');
+    }
+  }
+  async function deleteComment(id) {
+    const removed = comments.find((c) => c.id === id);
+    setComments((prev) => prev.filter((c) => c.id !== id));
+    const { error } = await supabase.from('task_comments').delete().eq('id', id);
+    if (error) {
+      console.error('Failed to delete comment', error);
+      if (removed) setComments((prev) => [...prev, removed]);
+      pushToast('Failed to delete comment — try again.');
     }
   }
 
@@ -1131,6 +1294,9 @@ export default function App() {
 
   const deadlineDays = currentProject?.deadline ? daysUntil(currentProject.deadline) : null;
   const selectedMemberObj = team.find((m) => m.id === selectedMember) || null;
+  const openTask = tasks.find((t) => t.id === openTaskId) || null;
+  const openTaskProject = openTask ? projects.find((p) => p.id === openTask.projectId) || null : null;
+  const openTaskMembers = openTask ? openTask.assignees.map((id) => team.find((m) => m.id === id)).filter(Boolean) : [];
   const filteredTasks = selectedMember ? projectTasks.filter((t) => t.assignees.includes(selectedMember)) : projectTasks;
 
   if (authLoading) {
@@ -1367,9 +1533,11 @@ export default function App() {
                                     onMove={moveTask}
                                     onDragStart={handleDragStart}
                                     onDelete={deleteTask}
+                                    onOpen={setOpenTaskId}
                                     canMoveLeft={colIdx > 0}
                                     canMoveRight={colIdx < STATUSES.length - 1}
                                     highlighted={task.id === highlightedTaskId}
+                                    commentCount={comments.filter((c) => c.taskId === task.id).length}
                                   />
                                 );
                               })}
@@ -1630,6 +1798,19 @@ export default function App() {
       </div>
 
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
+
+      {openTask && (
+        <TaskDetailModal
+          task={openTask}
+          project={openTaskProject}
+          members={openTaskMembers}
+          team={team}
+          comments={comments}
+          onClose={() => setOpenTaskId(null)}
+          onAddComment={(authorId, body) => addComment(openTask.id, authorId, body)}
+          onDeleteComment={deleteComment}
+        />
+      )}
     </div>
   );
 }

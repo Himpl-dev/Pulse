@@ -66,3 +66,17 @@ create policy "authenticated only" on team_members
 --    exist — run this once to update the roles already seeded in production.
 update team_members set role = 'Team lead' where id = 'm1';
 update team_members set role = 'Operator' where id in ('m2', 'm3', 'm4');
+
+-- 6. Task comments, so context on a task doesn't only live in someone's head.
+create table if not exists task_comments (
+  id uuid primary key,
+  task_id text not null,
+  author_id text not null,
+  body text not null,
+  created_at timestamptz not null default now()
+);
+
+alter table task_comments enable row level security;
+drop policy if exists "authenticated only" on task_comments;
+create policy "authenticated only" on task_comments
+  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
