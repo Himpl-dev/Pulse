@@ -983,6 +983,94 @@ function LogsPanel({ team, logs, onAdd, onDelete, accessToken }) {
   );
 }
 
+function WeeklyDigestPanel({ projects, tasks, team, comments, logs, accessToken }) {
+  const [digest, setDigest] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  async function generate() {
+    setLoading(true);
+    setError('');
+    setDigest('');
+    try {
+      const weekAgo = new Date(Date.now() - 7 * 86400000);
+      const openTasks = tasks.filter((t) => t.status !== 'done');
+
+      const taskLine = (t) => {
+        const project = projects.find((p) => p.id === t.projectId);
+        const names = t.assignees.map((id) => team.find((m) => m.id === id)?.name).filter(Boolean).join(', ');
+        return `- ${t.title} (${project?.name || 'Unknown project'}) — due ${t.due}${names ? `, assigned to ${names}` : ''}`;
+      };
+      const overdue = openTasks.filter((t) => daysUntil(t.due) < 0).map(taskLine);
+      const dueSoon = openTasks.filter((t) => { const d = daysUntil(t.due); return d >= 0 && d <= 7; }).map(taskLine);
+
+      const recentComments = comments
+        .filter((c) => new Date(c.createdAt) >= weekAgo)
+        .map((c) => {
+          const task = tasks.find((t) => t.id === c.taskId);
+          const author = team.find((m) => m.id === c.authorId);
+          return `- ${author?.name || 'Someone'} on "${task?.title || 'a task'}": ${c.body}`;
+        });
+      const recentLogs = logs
+        .filter((l) => new Date(l.createdAt) >= weekAgo)
+        .map((l) => {
+          const person = team.find((m) => m.id === l.personId);
+          return `- ${person?.name || 'Someone'}${l.tag ? ` (${l.tag})` : ''}: ${l.note}`;
+        });
+      const members = team.map((m) => {
+        const mine = tasks.filter((t) => t.assignees.includes(m.id) && t.status !== 'done');
+        const overdueCount = mine.filter((t) => daysUntil(t.due) < 0).length;
+        return `- ${m.name}: ${mine.length} open${overdueCount ? `, ${overdueCount} overdue` : ''}`;
+      });
+
+      const res = await fetch('/api/digest', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ overdue, dueSoon, comments: recentComments, logs: recentLogs, members }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Digest failed');
+      setDigest(data.digest || '');
+    } catch (err) {
+      setError(err.message || 'Digest failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl p-4 mb-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
+      <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+        <h2 className="font-display font-semibold text-sm flex items-center gap-2">
+          <Sparkles size={15} style={{ color: TOKENS.violet }} /> Weekly digest
+        </h2>
+        <div className="flex items-center gap-2">
+          {digest && <CopyButton text={digest} label="Copy" />}
+          <button
+            type="button"
+            onClick={generate}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-40"
+            style={{ background: hexToRgba(TOKENS.violet, 0.15), color: TOKENS.violet, border: `1px solid ${hexToRgba(TOKENS.violet, 0.4)}` }}
+          >
+            {loading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+            {loading ? 'Generating…' : digest ? 'Regenerate' : 'Generate'}
+          </button>
+        </div>
+      </div>
+      <p className="text-xs mb-3" style={{ color: TOKENS.textFaint }}>
+        Overdue and due-soon tasks, the last 7 days of comments and logs, and per-member load across every project — copy it into Slack or an email yourself.
+      </p>
+      {error && <p className="text-xs mb-2" style={{ color: TOKENS.coral }}>{error}</p>}
+      {digest && (
+        <p className="text-sm whitespace-pre-wrap leading-relaxed rounded-lg p-3" style={{ color: TOKENS.text, background: TOKENS.surface2, border: `1px solid ${TOKENS.border}` }}>
+          {digest}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /* ----------------------------------- app ------------------------------------ */
 
 export default function App() {
@@ -1609,6 +1697,8 @@ export default function App() {
 
             {activeTab === 'team' && (
               <div>
+                <WeeklyDigestPanel projects={projects} tasks={tasks} team={team} comments={comments} logs={logs} accessToken={session.access_token} />
+
                 <div className="rounded-xl p-4 mb-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
                   <h2 className="font-display font-semibold text-sm mb-3 flex items-center gap-2">
                     <Users size={15} /> Add member
