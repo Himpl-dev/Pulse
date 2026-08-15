@@ -719,6 +719,55 @@ function ToastStack({ toasts, onDismiss }) {
   );
 }
 
+const CONFETTI_COLORS = [TOKENS.blue, TOKENS.teal, TOKENS.amber, TOKENS.coral, TOKENS.violet, TOKENS.magenta];
+
+function ConfettiBurst({ pieceCount = 40 }) {
+  const pieces = useMemo(
+    () => Array.from({ length: pieceCount }, (_, i) => ({
+      id: i,
+      left: Math.random() * 100,
+      delay: Math.random() * 0.3,
+      duration: 1.3 + Math.random() * 0.9,
+      color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+      size: 6 + Math.random() * 5,
+    })),
+    [pieceCount]
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 pointer-events-none" style={{ overflow: 'hidden' }}>
+      {pieces.map((p) => (
+        <span
+          key={p.id}
+          style={{
+            position: 'absolute',
+            top: -20,
+            left: `${p.left}%`,
+            width: p.size,
+            height: p.size * 0.5,
+            background: p.color,
+            borderRadius: 2,
+            animation: `confettiFall ${p.duration}s ease-in ${p.delay}s forwards`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CelebrationBanner({ message }) {
+  return (
+    <div className="fixed z-50 animate-fadein" style={{ top: 72, left: '50%', transform: 'translateX(-50%)' }}>
+      <div
+        className="px-4 py-2.5 rounded-full text-sm font-medium whitespace-nowrap"
+        style={{ background: TOKENS.surface, border: `1px solid ${hexToRgba(TOKENS.teal, 0.4)}`, color: TOKENS.text, boxShadow: '0 12px 32px rgba(0,0,0,0.45)' }}
+      >
+        {message}
+      </div>
+    </div>
+  );
+}
+
 function GlobalSearch({ projects, tasks, onSelectProject, onSelectTask }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -1107,6 +1156,7 @@ export default function App() {
   const [showAddTask, setShowAddTask] = useState(false);
   const [loading, setLoading] = useState(true);
   const [toasts, setToasts] = useState([]);
+  const [celebration, setCelebration] = useState(null);
   const [highlightedTaskId, setHighlightedTaskId] = useState(null);
 
   function jumpToProject(id) {
@@ -1128,6 +1178,25 @@ export default function App() {
   }
   function dismissToast(id) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
+  }
+
+  function celebrate(message) {
+    const token = Date.now();
+    setCelebration({ token, message });
+    setTimeout(() => setCelebration((prev) => (prev?.token === token ? null : prev)), 2200);
+  }
+
+  // Fires the celebration when a task lands on Done — a bigger one if that
+  // was the project's last open task.
+  function celebrateCompletion(completedTask) {
+    const siblings = tasks.filter((t) => t.projectId === completedTask.projectId);
+    const allDone = siblings.every((t) => (t.id === completedTask.id ? true : t.status === 'done'));
+    if (allDone) {
+      const project = projects.find((p) => p.id === completedTask.projectId);
+      celebrate(`🎉 ${project ? project.name : 'Project'} complete!`);
+    } else {
+      celebrate('Nice — task complete!');
+    }
   }
 
   const currentProject = projects.find((p) => p.id === selectedProjectId) || null;
@@ -1313,8 +1382,9 @@ export default function App() {
       pushToast('Failed to move task — try again.');
       return;
     }
-    if (status === 'done' && prevStatus !== 'done' && original?.repeat && original.repeat !== 'none') {
-      spawnRecurringTask(original);
+    if (status === 'done' && prevStatus !== 'done' && original) {
+      celebrateCompletion(original);
+      if (original.repeat && original.repeat !== 'none') spawnRecurringTask(original);
     }
   }
   async function moveTask(id, direction) {
@@ -1340,8 +1410,9 @@ export default function App() {
         pushToast('Failed to move task — try again.');
         return;
       }
-      if (newStatus === 'done' && prevStatus !== 'done' && movedTask?.repeat && movedTask.repeat !== 'none') {
-        spawnRecurringTask(movedTask);
+      if (newStatus === 'done' && prevStatus !== 'done' && movedTask) {
+        celebrateCompletion(movedTask);
+        if (movedTask.repeat && movedTask.repeat !== 'none') spawnRecurringTask(movedTask);
       }
     }
   }
@@ -1548,6 +1619,10 @@ export default function App() {
           to { opacity: 1; transform: translateY(0); }
         }
         .animate-fadein { animation: fadeIn 0.35s ease; }
+        @keyframes confettiFall {
+          from { transform: translateY(0) rotate(0deg); opacity: 1; }
+          to { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+        }
         @media (prefers-reduced-motion: reduce) {
           *, .animate-fadein { animation: none !important; transition: none !important; }
         }
@@ -2024,6 +2099,13 @@ export default function App() {
       </div>
 
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
+
+      {celebration && (
+        <>
+          <ConfettiBurst />
+          <CelebrationBanner message={celebration.message} />
+        </>
+      )}
 
       {openTask && (
         <TaskDetailModal
