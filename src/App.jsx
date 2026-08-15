@@ -40,6 +40,25 @@ function initialsFromName(name) {
   return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase();
 }
 
+// Surfaces members whose recorded skills look relevant to a task title, e.g.
+// typing "Cognex C1 calibration" suggests whoever is Certified on Cognex C1.
+function suggestAssigneesFromSkills(title, team) {
+  const t = title.trim().toLowerCase();
+  if (t.length < 3) return [];
+  const matches = [];
+  for (const member of team) {
+    for (const skill of member.skills || []) {
+      const skillLower = skill.name.toLowerCase();
+      const skillWords = skillLower.split(/\s+/).filter((w) => w.length >= 4);
+      if (t.includes(skillLower) || skillWords.some((w) => t.includes(w))) {
+        matches.push({ member, skill });
+        break; // one suggested skill per member is enough
+      }
+    }
+  }
+  return matches;
+}
+
 // Wordmark placeholders (short + color) until real logo image files are added — see CustomerLogo.
 const CUSTOMERS = [
   { id: 'bytronic', name: 'Bytronic', short: 'BYT', color: TOKENS.blue, note: 'In-house · multiple suppliers' },
@@ -369,6 +388,11 @@ function AddTaskForm({ team, onAdd, onCancel }) {
     onAdd({ title: title.trim(), assignees, priority, due });
   }
 
+  const suggestions = useMemo(
+    () => suggestAssigneesFromSkills(title, team).filter((s) => !assignees.includes(s.member.id)),
+    [title, team, assignees]
+  );
+
   return (
     <form onSubmit={submit} className="flex flex-wrap items-center gap-2 mb-4 p-3 rounded-xl" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
       <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Task title" className="rounded-lg px-3 py-1.5 text-sm flex-1 min-w-[160px]" style={inputStyle} />
@@ -381,6 +405,23 @@ function AddTaskForm({ team, onAdd, onCancel }) {
       <input type="date" required value={due} onChange={(e) => setDue(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle} />
       <button type="submit" className="px-3 py-1.5 rounded-lg text-sm font-medium" style={{ background: TOKENS.blue, color: '#0B0D11' }}>Add</button>
       <button type="button" onClick={onCancel} className="px-3 py-1.5 rounded-lg text-sm" style={{ color: TOKENS.textMuted }}>Cancel</button>
+
+      {suggestions.length > 0 && (
+        <div className="basis-full flex items-center gap-1.5 flex-wrap text-xs" style={{ color: TOKENS.textFaint }}>
+          <Sparkles size={12} style={{ color: TOKENS.violet }} /> Suggested:
+          {suggestions.map((s) => (
+            <button
+              key={s.member.id}
+              type="button"
+              onClick={() => setAssignees((prev) => [...prev, s.member.id])}
+              className="flex items-center gap-1 px-2 py-1 rounded-full"
+              style={{ background: hexToRgba(s.member.color, 0.12), color: s.member.color, border: `1px solid ${hexToRgba(s.member.color, 0.35)}` }}
+            >
+              {s.member.name.split(' ')[0]} · {s.skill.name} ({s.skill.level})
+            </button>
+          ))}
+        </div>
+      )}
     </form>
   );
 }
