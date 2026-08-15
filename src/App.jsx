@@ -912,6 +912,79 @@ function formatLogsAsText(personName, entries) {
   return `${personName} — log entries\n\n${lines.join('\n')}`;
 }
 
+// Lightweight, dependency-free renderer for the small subset of markdown the
+// AI features (digest/summarize) actually produce: #/##/### headings,
+// **bold**, and (possibly nested) "- " bullet lists.
+function renderMarkdownInline(text, keyPrefix) {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith('**') && part.endsWith('**')
+      ? <strong key={`${keyPrefix}-${i}`}>{part.slice(2, -2)}</strong>
+      : <React.Fragment key={`${keyPrefix}-${i}`}>{part}</React.Fragment>
+  );
+}
+
+function renderMarkdown(text) {
+  const lines = text.split('\n');
+  const elements = [];
+  let key = 0;
+  let i = 0;
+
+  function renderList(minIndent) {
+    const items = [];
+    while (i < lines.length) {
+      const line = lines[i];
+      if (line.trim() === '') { i++; continue; }
+      const indent = line.match(/^(\s*)/)[1].length;
+      const bulletMatch = line.trim().match(/^[-*]\s+(.*)$/);
+      if (!bulletMatch || indent < minIndent) break;
+      if (indent > minIndent) {
+        const nested = renderList(indent);
+        if (items.length > 0) items[items.length - 1].children = nested;
+        continue;
+      }
+      items.push({ text: bulletMatch[1] });
+      i++;
+    }
+    const listKey = key++;
+    return (
+      <ul key={`ul-${listKey}`} className="list-disc pl-5 space-y-1">
+        {items.map((item, idx) => (
+          <li key={idx}>
+            {renderMarkdownInline(item.text, `li-${listKey}-${idx}`)}
+            {item.children}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (trimmed === '') { i++; continue; }
+
+    const headingMatch = trimmed.match(/^(#{1,3})\s+(.*)$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const cls = level === 1 ? 'text-base font-display font-semibold mt-3 mb-1.5' : 'text-sm font-display font-semibold mt-3 mb-1';
+      elements.push(<p key={`h-${key}`} className={cls} style={{ color: TOKENS.text }}>{renderMarkdownInline(headingMatch[2], `h-${key++}`)}</p>);
+      i++;
+      continue;
+    }
+
+    const indent = line.match(/^(\s*)/)[1].length;
+    if (trimmed.match(/^[-*]\s+/)) {
+      elements.push(renderList(indent));
+      continue;
+    }
+
+    elements.push(<p key={`p-${key}`} className="mb-1.5">{renderMarkdownInline(trimmed, `p-${key++}`)}</p>);
+    i++;
+  }
+
+  return elements;
+}
+
 function LogsPanel({ team, logs, onAdd, onDelete, accessToken }) {
   const [personId, setPersonId] = useState(team[0]?.id || null);
   const [summary, setSummary] = useState('');
@@ -1013,7 +1086,7 @@ function LogsPanel({ team, logs, onAdd, onDelete, accessToken }) {
             </span>
             <CopyButton text={summary} label="Copy" />
           </div>
-          <p className="text-sm whitespace-pre-wrap leading-relaxed" style={{ color: TOKENS.text }}>{summary}</p>
+          <div className="text-sm leading-relaxed" style={{ color: TOKENS.text }}>{renderMarkdown(summary)}</div>
         </div>
       )}
 
@@ -1130,9 +1203,9 @@ function WeeklyDigestPanel({ projects, tasks, team, comments, logs, accessToken 
       </p>
       {error && <p className="text-xs mb-2" style={{ color: TOKENS.coral }}>{error}</p>}
       {digest && (
-        <p className="text-sm whitespace-pre-wrap leading-relaxed rounded-lg p-3" style={{ color: TOKENS.text, background: TOKENS.surface2, border: `1px solid ${TOKENS.border}` }}>
-          {digest}
-        </p>
+        <div className="text-sm leading-relaxed rounded-lg p-3" style={{ color: TOKENS.text, background: TOKENS.surface2, border: `1px solid ${TOKENS.border}` }}>
+          {renderMarkdown(digest)}
+        </div>
       )}
     </div>
   );
