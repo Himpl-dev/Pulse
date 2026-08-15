@@ -50,13 +50,19 @@ create table if not exists team_members (
 );
 
 insert into team_members (id, name, role, color, initials, skills) values
-  ('m1', 'Jamie Himpleman', 'Team member', '#9B8CF2', 'JH', '[{"name":"Cognex C1","level":"Certified"},{"name":"Cognex Insight Spreadsheet","level":"Basic"},{"name":"Zebra Aurora","level":"Basic + Advanced"}]'),
-  ('m2', 'Riaz Ahmed', 'Team member', '#5B8DEF', 'RA', '[{"name":"Cognex C1","level":"Certified"},{"name":"Cognex Insight Spreadsheet","level":"Basic"}]'),
-  ('m3', 'Maxwell Taylor', 'Team member', '#45C4A0', 'MT', '[]'),
-  ('m4', 'Salman Salman', 'Team member', '#F2A93B', 'SS', '[]')
+  ('m1', 'Jamie Himpleman', 'Team lead', '#9B8CF2', 'JH', '[{"name":"Cognex C1","level":"Certified"},{"name":"Cognex Insight Spreadsheet","level":"Basic"},{"name":"Zebra Aurora","level":"Basic + Advanced"}]'),
+  ('m2', 'Riaz Ahmed', 'Operator', '#5B8DEF', 'RA', '[{"name":"Cognex C1","level":"Certified"},{"name":"Cognex Insight Spreadsheet","level":"Basic"}]'),
+  ('m3', 'Maxwell Taylor', 'Operator', '#45C4A0', 'MT', '[]'),
+  ('m4', 'Salman Salman', 'Operator', '#F2A93B', 'SS', '[]')
 on conflict (id) do nothing;
 
 alter table team_members enable row level security;
 drop policy if exists "authenticated only" on team_members;
 create policy "authenticated only" on team_members
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+
+-- 5. Role update: Jamie is team lead, everyone else is an operator. The insert
+--    above uses "on conflict do nothing" so it won't touch rows that already
+--    exist — run this once to update the roles already seeded in production.
+update team_members set role = 'Team lead' where id = 'm1';
+update team_members set role = 'Operator' where id in ('m2', 'm3', 'm4');
