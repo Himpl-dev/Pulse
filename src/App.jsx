@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient';
 import {
   Users, Clock, AlertTriangle, Calendar, TrendingUp, PieChart as PieChartIcon,
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
-  NotebookPen, LogOut, Copy, Check, Sparkles, Loader2, Search, MessageSquare, Download,
+  NotebookPen, LogOut, Copy, Check, Sparkles, Loader2, Search, MessageSquare, Download, Repeat,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -119,6 +119,13 @@ function formatDue(dateStr) {
   return `Due in ${d}d`;
 }
 
+function advanceDueDate(dateStr, repeat) {
+  const d = new Date(dateStr + 'T00:00:00');
+  if (repeat === 'weekly') d.setDate(d.getDate() + 7);
+  else if (repeat === 'monthly') d.setMonth(d.getMonth() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 function dueTone(dateStr) {
   const d = daysUntil(dateStr);
   if (d < 0) return { color: TOKENS.coral, pulse: true };
@@ -172,10 +179,10 @@ function projectToRow(p) {
   return { id: p.id, name: p.name, subtitle: p.subtitle, deadline: p.deadline, customer_id: p.customerId };
 }
 function taskFromRow(r) {
-  return { id: r.id, title: r.title, assignees: r.assignees, priority: r.priority, due: r.due, status: r.status, projectId: r.project_id };
+  return { id: r.id, title: r.title, assignees: r.assignees, priority: r.priority, due: r.due, status: r.status, projectId: r.project_id, repeat: r.repeat || 'none' };
 }
 function taskToRow(t) {
-  return { id: t.id, title: t.title, assignees: t.assignees, priority: t.priority, due: t.due, status: t.status, project_id: t.projectId };
+  return { id: t.id, title: t.title, assignees: t.assignees, priority: t.priority, due: t.due, status: t.status, project_id: t.projectId, repeat: t.repeat || 'none' };
 }
 function logFromRow(r) {
   return { id: r.id, personId: r.person_id, note: r.note, tag: r.tag, createdAt: r.created_at };
@@ -424,11 +431,12 @@ function AddTaskForm({ team, onAdd, onCancel }) {
   const [assignees, setAssignees] = useState(team.length ? [team[0].id] : []);
   const [priority, setPriority] = useState('medium');
   const [due, setDue] = useState('');
+  const [repeat, setRepeat] = useState('none');
 
   function submit(e) {
     e.preventDefault();
     if (!title.trim() || !due || assignees.length === 0) return;
-    onAdd({ title: title.trim(), assignees, priority, due });
+    onAdd({ title: title.trim(), assignees, priority, due, repeat });
   }
 
   const suggestions = useMemo(
@@ -446,6 +454,11 @@ function AddTaskForm({ team, onAdd, onCancel }) {
         <option value="low">Low</option>
       </select>
       <input type="date" required value={due} onChange={(e) => setDue(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle} />
+      <select value={repeat} onChange={(e) => setRepeat(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle} title="Repeat">
+        <option value="none">Doesn't repeat</option>
+        <option value="weekly">Repeats weekly</option>
+        <option value="monthly">Repeats monthly</option>
+      </select>
       <button type="submit" className="px-3 py-1.5 rounded-lg text-sm font-medium" style={{ background: TOKENS.blue, color: '#0B0D11' }}>Add</button>
       <button type="button" onClick={onCancel} className="px-3 py-1.5 rounded-lg text-sm" style={{ color: TOKENS.textMuted }}>Cancel</button>
 
@@ -493,8 +506,13 @@ function TaskCard({ task, members, onMove, onDragStart, onDelete, onOpen, canMov
       }}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
-        <span className="text-xs font-medium uppercase tracking-wide" style={{ color: PRIORITY_COLOR[task.priority] }}>
+        <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide" style={{ color: PRIORITY_COLOR[task.priority] }}>
           {task.priority}
+          {task.repeat && task.repeat !== 'none' && (
+            <span title={`Repeats ${task.repeat}`} className="flex items-center" style={{ color: TOKENS.textFaint }}>
+              <Repeat size={11} />
+            </span>
+          )}
         </span>
         <div className="flex gap-1">
           <button onClick={() => onMove(task.id, -1)} disabled={!canMoveLeft} className="p-0.5 rounded disabled:opacity-20" style={{ color: TOKENS.textMuted }} aria-label="Move back">
@@ -1159,11 +1177,30 @@ export default function App() {
       if (teamErr) console.error('Failed to load team', teamErr);
       if (commentErr) console.error('Failed to load comments', commentErr);
       setProjects((projectRows || []).map(projectFromRow));
-      setTasks((taskRows || []).map(taskFromRow));
       setLogs((logRows || []).map(logFromRow));
       setTeam((teamRows || []).map(memberFromRow));
       setComments((commentRows || []).map(commentFromRow));
       setLoading(false);
+
+      // Auto-escalate: any open task that's gone overdue and isn't already
+      // High gets bumped, so priority reflects urgency without someone having
+      // to notice and change it by hand.
+      const loadedTasks = (taskRows || []).map(taskFromRow);
+      const toEscalate = [];
+      const withEscalation = loadedTasks.map((t) => {
+        if (t.status !== 'done' && t.priority !== 'high' && daysUntil(t.due) < 0) {
+          toEscalate.push(t.id);
+          return { ...t, priority: 'high' };
+        }
+        return t;
+      });
+      setTasks(withEscalation);
+      if (toEscalate.length > 0) {
+        pushToast(`${toEscalate.length} overdue task${toEscalate.length === 1 ? '' : 's'} auto-escalated to High priority.`);
+        const results = await Promise.all(toEscalate.map((id) => supabase.from('tasks').update({ priority: 'high' }).eq('id', id)));
+        const err = results.find((r) => r.error)?.error;
+        if (err) console.error('Failed to persist auto-escalated priority', err);
+      }
     })();
   }, [session]);
 
@@ -1210,15 +1247,38 @@ export default function App() {
     }
   }
 
-  async function addTask({ title, assignees, priority, due }) {
+  async function addTask({ title, assignees, priority, due, repeat }) {
     const id = `t${tasks.length}-${Math.round(Math.random() * 1e6)}`;
-    const task = { id, title, assignees, priority, due, status: 'backlog', projectId: selectedProjectId };
+    const task = { id, title, assignees, priority, due, status: 'backlog', projectId: selectedProjectId, repeat: repeat || 'none' };
     setTasks((prev) => [...prev, task]);
     const { error } = await supabase.from('tasks').insert(taskToRow(task));
     if (error) {
       console.error('Failed to save task', error);
       setTasks((prev) => prev.filter((t) => t.id !== id));
       pushToast('Failed to save task — try again.');
+    }
+  }
+  // Creates the next occurrence of a recurring task once its current one is marked done.
+  async function spawnRecurringTask(task) {
+    const id = `t${tasks.length}-${Math.round(Math.random() * 1e6)}`;
+    const nextTask = {
+      id,
+      title: task.title,
+      assignees: task.assignees,
+      priority: task.priority,
+      due: advanceDueDate(task.due, task.repeat),
+      status: 'backlog',
+      projectId: task.projectId,
+      repeat: task.repeat,
+    };
+    setTasks((prev) => [...prev, nextTask]);
+    const { error } = await supabase.from('tasks').insert(taskToRow(nextTask));
+    if (error) {
+      console.error('Failed to create recurring task', error);
+      setTasks((prev) => prev.filter((t) => t.id !== id));
+      pushToast(`Completed, but couldn't schedule the next "${task.title}" — try again.`);
+    } else {
+      pushToast(`Next "${task.title}" scheduled for ${nextTask.due}.`);
     }
   }
   async function deleteTask(id) {
@@ -1243,18 +1303,24 @@ export default function App() {
   async function handleDrop(e, status) {
     e.preventDefault();
     const id = e.dataTransfer.getData('text/plain');
-    const prevStatus = tasks.find((t) => t.id === id)?.status;
+    const original = tasks.find((t) => t.id === id);
+    const prevStatus = original?.status;
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status } : t)));
     const { error } = await supabase.from('tasks').update({ status }).eq('id', id);
     if (error) {
       console.error('Failed to update task status', error);
       if (prevStatus) setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: prevStatus } : t)));
       pushToast('Failed to move task — try again.');
+      return;
+    }
+    if (status === 'done' && prevStatus !== 'done' && original?.repeat && original.repeat !== 'none') {
+      spawnRecurringTask(original);
     }
   }
   async function moveTask(id, direction) {
     let newStatus = null;
     let prevStatus = null;
+    let movedTask = null;
     setTasks((prev) =>
       prev.map((t) => {
         if (t.id !== id) return t;
@@ -1262,6 +1328,7 @@ export default function App() {
         const idx = STATUSES.indexOf(t.status);
         const newIdx = Math.min(Math.max(idx + direction, 0), STATUSES.length - 1);
         newStatus = STATUSES[newIdx];
+        movedTask = t;
         return { ...t, status: newStatus };
       })
     );
@@ -1271,6 +1338,10 @@ export default function App() {
         console.error('Failed to update task status', error);
         setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: prevStatus } : t)));
         pushToast('Failed to move task — try again.');
+        return;
+      }
+      if (newStatus === 'done' && prevStatus !== 'done' && movedTask?.repeat && movedTask.repeat !== 'none') {
+        spawnRecurringTask(movedTask);
       }
     }
   }

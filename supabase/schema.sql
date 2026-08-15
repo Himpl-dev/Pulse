@@ -80,3 +80,7 @@ alter table task_comments enable row level security;
 drop policy if exists "authenticated only" on task_comments;
 create policy "authenticated only" on task_comments
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+
+-- 7. Recurring tasks: 'none' | 'weekly' | 'monthly'. When a task with a repeat
+--    set is moved to Done, the app creates the next occurrence automatically.
+alter table tasks add column if not exists repeat text not null default 'none';
