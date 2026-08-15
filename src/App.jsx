@@ -32,25 +32,13 @@ const PRIORITY_COLOR = { high: TOKENS.coral, medium: TOKENS.amber, low: TOKENS.b
 
 /* ---------------------------------- data ----------------------------------- */
 
-const TEAM = [
-  {
-    id: 'm1', name: 'Jamie Himpleman', role: 'Team member', color: TOKENS.violet, initials: 'JH',
-    skills: [
-      { name: 'Cognex C1', level: 'Certified' },
-      { name: 'Cognex Insight Spreadsheet', level: 'Basic' },
-      { name: 'Zebra Aurora', level: 'Basic + Advanced' },
-    ],
-  },
-  {
-    id: 'm2', name: 'Riaz Ahmed', role: 'Team member', color: TOKENS.blue, initials: 'RA',
-    skills: [
-      { name: 'Cognex C1', level: 'Certified' },
-      { name: 'Cognex Insight Spreadsheet', level: 'Basic' },
-    ],
-  },
-  { id: 'm3', name: 'Maxwell Taylor', role: 'Team member', color: TOKENS.teal, initials: 'MT', skills: [] },
-  { id: 'm4', name: 'Salman Salman', role: 'Team member', color: TOKENS.amber, initials: 'SS', skills: [] },
-];
+// Cycled through when a new team member is added, so each gets a distinct color.
+const MEMBER_COLORS = [TOKENS.violet, TOKENS.blue, TOKENS.teal, TOKENS.amber, TOKENS.coral, TOKENS.magenta];
+
+function initialsFromName(name) {
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase();
+}
 
 // Wordmark placeholders (short + color) until real logo image files are added — see CustomerLogo.
 const CUSTOMERS = [
@@ -84,6 +72,7 @@ const LOG_TAGS = [
 const INITIAL_PROJECTS = [];
 const INITIAL_TASKS = [];
 const INITIAL_LOGS = [];
+const INITIAL_TEAM = [];
 
 /* --------------------------------- helpers ---------------------------------- */
 
@@ -137,6 +126,12 @@ function logFromRow(r) {
 }
 function logToRow(l) {
   return { id: l.id, person_id: l.personId, note: l.note, tag: l.tag, created_at: l.createdAt };
+}
+function memberFromRow(r) {
+  return { id: r.id, name: r.name, role: r.role, color: r.color, initials: r.initials, skills: r.skills || [] };
+}
+function memberToRow(m) {
+  return { id: m.id, name: m.name, role: m.role, color: m.color, initials: m.initials, skills: m.skills };
 }
 
 /* -------------------------------- primitives -------------------------------- */
@@ -293,7 +288,30 @@ function AddProjectForm({ onAdd }) {
   );
 }
 
-function AssigneePicker({ value, onChange }) {
+function AddMemberForm({ onAdd }) {
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('');
+
+  function submit(e) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    onAdd({ name: name.trim(), role: role.trim() });
+    setName('');
+    setRole('');
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
+      <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" className="rounded-lg px-3 py-1.5 text-sm flex-1 min-w-[160px]" style={inputStyle} />
+      <input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Role (optional)" className="rounded-lg px-3 py-1.5 text-sm" style={{ ...inputStyle, width: 160 }} />
+      <button type="submit" className="px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5 flex-shrink-0" style={{ background: TOKENS.blue, color: '#0B0D11' }}>
+        <Plus size={14} /> Add member
+      </button>
+    </form>
+  );
+}
+
+function AssigneePicker({ team, value, onChange }) {
   const [open, setOpen] = useState(false);
 
   function toggle(id) {
@@ -306,7 +324,7 @@ function AssigneePicker({ value, onChange }) {
   }
 
   const label = value.length === 1
-    ? TEAM.find((m) => m.id === value[0])?.name
+    ? team.find((m) => m.id === value[0])?.name
     : `${value.length} people`;
 
   return (
@@ -324,7 +342,7 @@ function AssigneePicker({ value, onChange }) {
           className="absolute z-10 mt-1 rounded-lg p-1.5 space-y-0.5"
           style={{ background: TOKENS.surface2, border: `1px solid ${TOKENS.border}`, minWidth: 180, boxShadow: '0 12px 32px rgba(0,0,0,0.4)' }}
         >
-          {TEAM.map((m) => (
+          {team.map((m) => (
             <label key={m.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm cursor-pointer" style={{ color: TOKENS.text }}>
               <input type="checkbox" checked={value.includes(m.id)} onChange={() => toggle(m.id)} />
               {m.name}
@@ -339,9 +357,9 @@ function AssigneePicker({ value, onChange }) {
   );
 }
 
-function AddTaskForm({ onAdd, onCancel }) {
+function AddTaskForm({ team, onAdd, onCancel }) {
   const [title, setTitle] = useState('');
-  const [assignees, setAssignees] = useState([TEAM[0].id]);
+  const [assignees, setAssignees] = useState(team.length ? [team[0].id] : []);
   const [priority, setPriority] = useState('medium');
   const [due, setDue] = useState('');
 
@@ -354,7 +372,7 @@ function AddTaskForm({ onAdd, onCancel }) {
   return (
     <form onSubmit={submit} className="flex flex-wrap items-center gap-2 mb-4 p-3 rounded-xl" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
       <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Task title" className="rounded-lg px-3 py-1.5 text-sm flex-1 min-w-[160px]" style={inputStyle} />
-      <AssigneePicker value={assignees} onChange={setAssignees} />
+      <AssigneePicker team={team} value={assignees} onChange={setAssignees} />
       <select value={priority} onChange={(e) => setPriority(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle}>
         <option value="high">High</option>
         <option value="medium">Medium</option>
@@ -412,7 +430,7 @@ function TaskCard({ task, members, onMove, onDragStart, onDelete, canMoveLeft, c
   );
 }
 
-function TimelineSection({ title, icon: Icon, color, items }) {
+function TimelineSection({ title, icon: Icon, color, items, team }) {
   if (items.length === 0) return null;
   return (
     <div>
@@ -423,7 +441,7 @@ function TimelineSection({ title, icon: Icon, color, items }) {
       </div>
       <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${TOKENS.border}` }}>
         {items.map((task, i) => {
-          const members = task.assignees.map((id) => TEAM.find((m) => m.id === id)).filter(Boolean);
+          const members = task.assignees.map((id) => team.find((m) => m.id === id)).filter(Boolean);
           const tone = dueTone(task.due);
           return (
             <div
@@ -525,13 +543,17 @@ function formatLogsAsText(personName, entries) {
   return `${personName} — log entries\n\n${lines.join('\n')}`;
 }
 
-function LogsPanel({ logs, onAdd, onDelete, accessToken }) {
-  const [personId, setPersonId] = useState(TEAM[0].id);
+function LogsPanel({ team, logs, onAdd, onDelete, accessToken }) {
+  const [personId, setPersonId] = useState(team[0]?.id || null);
   const [summary, setSummary] = useState('');
   const [summarizing, setSummarizing] = useState(false);
   const [summaryError, setSummaryError] = useState('');
 
-  const person = TEAM.find((m) => m.id === personId);
+  useEffect(() => {
+    if (!personId && team.length) setPersonId(team[0].id);
+  }, [team, personId]);
+
+  const person = team.find((m) => m.id === personId);
   const entries = logs
     .filter((l) => l.personId === personId)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -565,10 +587,14 @@ function LogsPanel({ logs, onAdd, onDelete, accessToken }) {
     }
   }
 
+  if (team.length === 0 || !person) {
+    return <p className="text-sm italic" style={{ color: TOKENS.textFaint }}>Add a team member to start logging notes.</p>;
+  }
+
   return (
     <div className="max-w-3xl">
       <div className="flex items-center gap-2 mb-4 flex-wrap">
-        {TEAM.map((m) => (
+        {team.map((m) => (
           <button
             key={m.id}
             onClick={() => switchPerson(m.id)}
@@ -663,6 +689,7 @@ export default function App() {
   const [projects, setProjects] = useState(INITIAL_PROJECTS);
   const [tasks, setTasks] = useState(INITIAL_TASKS);
   const [logs, setLogs] = useState(INITIAL_LOGS);
+  const [team, setTeam] = useState(INITIAL_TEAM);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [activeTab, setActiveTab] = useState('projects');
   const [selectedMember, setSelectedMember] = useState(null);
@@ -698,17 +725,20 @@ export default function App() {
     if (!session) return;
     (async () => {
       setLoading(true);
-      const [{ data: projectRows, error: projErr }, { data: taskRows, error: taskErr }, { data: logRows, error: logErr }] = await Promise.all([
+      const [{ data: projectRows, error: projErr }, { data: taskRows, error: taskErr }, { data: logRows, error: logErr }, { data: teamRows, error: teamErr }] = await Promise.all([
         supabase.from('projects').select('*'),
         supabase.from('tasks').select('*'),
         supabase.from('logs').select('*'),
+        supabase.from('team_members').select('*'),
       ]);
       if (projErr) console.error('Failed to load projects', projErr);
       if (taskErr) console.error('Failed to load tasks', taskErr);
       if (logErr) console.error('Failed to load logs', logErr);
+      if (teamErr) console.error('Failed to load team', teamErr);
       setProjects((projectRows || []).map(projectFromRow));
       setTasks((taskRows || []).map(taskFromRow));
       setLogs((logRows || []).map(logFromRow));
+      setTeam((teamRows || []).map(memberFromRow));
       setLoading(false);
     })();
   }, [session]);
@@ -782,9 +812,23 @@ export default function App() {
     if (error) console.error('Failed to delete log', error);
   }
 
+  async function addMember({ name, role }) {
+    const id = `m${team.length}-${Math.round(Math.random() * 1e6)}`;
+    const member = { id, name, role: role || 'Team member', color: MEMBER_COLORS[team.length % MEMBER_COLORS.length], initials: initialsFromName(name), skills: [] };
+    setTeam((prev) => [...prev, member]);
+    const { error } = await supabase.from('team_members').insert(memberToRow(member));
+    if (error) console.error('Failed to save team member', error);
+  }
+  async function deleteMember(id) {
+    setTeam((prev) => prev.filter((m) => m.id !== id));
+    setSelectedMember((prev) => (prev === id ? null : prev));
+    const { error } = await supabase.from('team_members').delete().eq('id', id);
+    if (error) console.error('Failed to delete team member', error);
+  }
+
   // Team-wide workload stats — deliberately span every project, not just the active one.
   const memberStats = useMemo(() => {
-    return TEAM.map((m) => {
+    return team.map((m) => {
       const mine = tasks.filter((t) => t.assignees.includes(m.id));
       const done = mine.filter((t) => t.status === 'done').length;
       const total = mine.length;
@@ -797,7 +841,7 @@ export default function App() {
       else if (dueSoon > 0) { tone = TOKENS.amber; pulse = true; }
       return { ...m, done, total, pct, active, overdue, dueSoon, tone, pulse };
     });
-  }, [tasks]);
+  }, [team, tasks]);
 
   const totalWorkload = memberStats.reduce((sum, m) => sum + m.total, 0);
 
@@ -806,12 +850,12 @@ export default function App() {
     return CUSTOMERS.map((c) => {
       const projectIds = new Set(projects.filter((p) => p.customerId === c.id).map((p) => p.id));
       const customerTasks = tasks.filter((t) => projectIds.has(t.projectId));
-      const byMember = TEAM
+      const byMember = team
         .map((m) => ({ id: m.id, name: m.name.split(' ')[0], color: m.color, value: customerTasks.filter((t) => t.assignees.includes(m.id)).length }))
         .filter((m) => m.value > 0);
       return { ...c, total: customerTasks.length, byMember };
     });
-  }, [projects, tasks]);
+  }, [team, projects, tasks]);
 
   // Current-project health — drives the header progress ring and the notification bell.
   const overall = useMemo(() => {
@@ -836,7 +880,7 @@ export default function App() {
   }, [projectTasks]);
 
   const deadlineDays = currentProject?.deadline ? daysUntil(currentProject.deadline) : null;
-  const selectedMemberObj = TEAM.find((m) => m.id === selectedMember) || null;
+  const selectedMemberObj = team.find((m) => m.id === selectedMember) || null;
   const filteredTasks = selectedMember ? projectTasks.filter((t) => t.assignees.includes(selectedMember)) : projectTasks;
 
   if (authLoading) {
@@ -885,7 +929,7 @@ export default function App() {
           <div className="hidden sm:block" style={{ width: 1, height: 28, background: TOKENS.border }} />
           <div className="hidden sm:block min-w-0">
             <p className="text-sm font-display font-semibold leading-tight truncate">{currentProject ? currentProject.name : 'No active project'}</p>
-            <p className="text-xs truncate" style={{ color: TOKENS.textFaint }}>{currentProject ? (currentProject.subtitle || 'No description') : 'Select or create one in Projects'} · {TEAM.length} members</p>
+            <p className="text-xs truncate" style={{ color: TOKENS.textFaint }}>{currentProject ? (currentProject.subtitle || 'No description') : 'Select or create one in Projects'} · {team.length} members</p>
           </div>
         </div>
 
@@ -927,7 +971,7 @@ export default function App() {
                 <div style={{ maxHeight: 260, overflowY: 'auto' }}>
                   {overall.atRisk.length === 0 && <p className="text-xs italic px-3 py-4" style={{ color: TOKENS.textFaint }}>Nothing needs attention.</p>}
                   {overall.atRisk.map((task) => {
-                    const members = task.assignees.map((id) => TEAM.find((m) => m.id === id)).filter(Boolean);
+                    const members = task.assignees.map((id) => team.find((m) => m.id === id)).filter(Boolean);
                     const tone = dueTone(task.due);
                     return (
                       <div key={task.id} className="flex items-center gap-2 px-3 py-2.5" style={{ borderBottom: `1px solid ${TOKENS.border}` }}>
@@ -1035,6 +1079,7 @@ export default function App() {
 
                     {showAddTask && (
                       <AddTaskForm
+                        team={team}
                         onAdd={(t) => { addTask(t); setShowAddTask(false); }}
                         onCancel={() => setShowAddTask(false)}
                       />
@@ -1061,7 +1106,7 @@ export default function App() {
                                 </p>
                               )}
                               {cards.map((task) => {
-                                const members = task.assignees.map((id) => TEAM.find((m) => m.id === id)).filter(Boolean);
+                                const members = task.assignees.map((id) => team.find((m) => m.id === id)).filter(Boolean);
                                 return (
                                   <TaskCard
                                     key={task.id}
@@ -1087,6 +1132,13 @@ export default function App() {
 
             {activeTab === 'team' && (
               <div>
+                <div className="rounded-xl p-4 mb-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
+                  <h2 className="font-display font-semibold text-sm mb-3 flex items-center gap-2">
+                    <Users size={15} /> Add member
+                  </h2>
+                  <AddMemberForm onAdd={addMember} />
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
                   {memberStats.map((m) => (
                     <div key={m.id} className="rounded-xl p-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
@@ -1104,6 +1156,9 @@ export default function App() {
                         <RadialProgress pct={m.pct} size={44} stroke={4} color={m.tone}>
                           <span className="font-mono" style={{ fontSize: 10, color: TOKENS.text }}>{m.pct}%</span>
                         </RadialProgress>
+                        <button onClick={() => deleteMember(m.id)} aria-label={`Remove ${m.name}`} title="Remove member" style={{ color: TOKENS.textMuted }} className="flex-shrink-0">
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                       <div className="flex items-center gap-4 text-xs mb-3 flex-wrap" style={{ color: TOKENS.textMuted }}>
                         <span className="font-mono">{m.done}/{m.total} done</span>
@@ -1204,9 +1259,9 @@ export default function App() {
                   <EmptyProjectState onGo={() => setActiveTab('projects')} />
                 ) : (
                   <div className="space-y-8">
-                    <TimelineSection title="Overdue" icon={AlertTriangle} color={TOKENS.coral} items={overdueList} />
-                    <TimelineSection title="Due this week" icon={Clock} color={TOKENS.amber} items={dueWeekList} />
-                    <TimelineSection title="Later" icon={Calendar} color={TOKENS.textMuted} items={laterList} />
+                    <TimelineSection title="Overdue" icon={AlertTriangle} color={TOKENS.coral} items={overdueList} team={team} />
+                    <TimelineSection title="Due this week" icon={Clock} color={TOKENS.amber} items={dueWeekList} team={team} />
+                    <TimelineSection title="Later" icon={Calendar} color={TOKENS.textMuted} items={laterList} team={team} />
                     {overdueList.length === 0 && dueWeekList.length === 0 && laterList.length === 0 && (
                       <p className="text-sm italic" style={{ color: TOKENS.textFaint }}>Nothing on the timeline yet.</p>
                     )}
@@ -1314,7 +1369,7 @@ export default function App() {
             )}
 
             {activeTab === 'logs' && (
-              <LogsPanel logs={logs} onAdd={addLog} onDelete={deleteLog} accessToken={session.access_token} />
+              <LogsPanel team={team} logs={logs} onAdd={addLog} onDelete={deleteLog} accessToken={session.access_token} />
             )}
           </div>
           )}

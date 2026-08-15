@@ -36,3 +36,27 @@ create policy "authenticated only" on logs
 --    Supabase dashboard and turn OFF "Allow new users to sign up" so nobody
 --    else can register an account. Then go to Authentication > Users and
 --    manually add yourself (jamie.himpleman@bytronic.com) with a password.
+
+-- 4. Team members table, so the roster can be edited from the app instead of
+--    being hardcoded. Seeded with the four people already baked into the app
+--    so existing task/log assignments keep resolving to the same person.
+create table if not exists team_members (
+  id text primary key,
+  name text not null,
+  role text not null default 'Team member',
+  color text not null,
+  initials text not null,
+  skills jsonb not null default '[]'::jsonb
+);
+
+insert into team_members (id, name, role, color, initials, skills) values
+  ('m1', 'Jamie Himpleman', 'Team member', '#9B8CF2', 'JH', '[{"name":"Cognex C1","level":"Certified"},{"name":"Cognex Insight Spreadsheet","level":"Basic"},{"name":"Zebra Aurora","level":"Basic + Advanced"}]'),
+  ('m2', 'Riaz Ahmed', 'Team member', '#5B8DEF', 'RA', '[{"name":"Cognex C1","level":"Certified"},{"name":"Cognex Insight Spreadsheet","level":"Basic"}]'),
+  ('m3', 'Maxwell Taylor', 'Team member', '#45C4A0', 'MT', '[]'),
+  ('m4', 'Salman Salman', 'Team member', '#F2A93B', 'SS', '[]')
+on conflict (id) do nothing;
+
+alter table team_members enable row level security;
+drop policy if exists "authenticated only" on team_members;
+create policy "authenticated only" on team_members
+  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
