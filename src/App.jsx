@@ -474,6 +474,25 @@ function TimelineSection({ title, icon: Icon, color, items, team }) {
   );
 }
 
+function ToastStack({ toasts, onDismiss }) {
+  if (toasts.length === 0) return null;
+  return (
+    <div className="fixed z-50 flex flex-col gap-2" style={{ bottom: 16, right: 16, maxWidth: 320 }}>
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className="rounded-lg px-3 py-2.5 text-sm flex items-start gap-2 animate-fadein"
+          style={{ background: TOKENS.surface2, border: `1px solid ${hexToRgba(TOKENS.coral, 0.4)}`, color: TOKENS.text, boxShadow: '0 12px 32px rgba(0,0,0,0.4)' }}
+        >
+          <AlertTriangle size={14} style={{ color: TOKENS.coral, marginTop: 2, flexShrink: 0 }} />
+          <span className="flex-1">{t.message}</span>
+          <button onClick={() => onDismiss(t.id)} style={{ color: TOKENS.textMuted }} aria-label="Dismiss"><X size={13} /></button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function CopyButton({ text, label = 'Copy' }) {
   const [copied, setCopied] = useState(false);
 
@@ -696,6 +715,16 @@ export default function App() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [toasts, setToasts] = useState([]);
+
+  function pushToast(message) {
+    const id = crypto.randomUUID();
+    setToasts((prev) => [...prev, { id, message }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 5000);
+  }
+  function dismissToast(id) {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }
 
   const currentProject = projects.find((p) => p.id === selectedProjectId) || null;
   const projectTasks = tasks.filter((t) => t.projectId === selectedProjectId);
@@ -750,14 +779,32 @@ export default function App() {
     setSelectedProjectId(id);
     setActiveTab('board');
     const { error } = await supabase.from('projects').insert(projectToRow(project));
-    if (error) console.error('Failed to save project', error);
+    if (error) {
+      console.error('Failed to save project', error);
+      setProjects((prev) => prev.filter((p) => p.id !== id));
+      pushToast('Failed to save project — try again.');
+    }
   }
   async function deleteProject(id) {
+    const removedProject = projects.find((p) => p.id === id);
+    const removedTasks = tasks.filter((t) => t.projectId === id);
+    const taskLabel = removedTasks.length > 0 ? ` and its ${removedTasks.length} task${removedTasks.length === 1 ? '' : 's'}` : '';
+    if (!window.confirm(`Delete "${removedProject?.name}"${taskLabel}? This can't be undone.`)) return;
+
     setProjects((prev) => prev.filter((p) => p.id !== id));
     setTasks((prev) => prev.filter((t) => t.projectId !== id));
     setSelectedProjectId((prev) => (prev === id ? null : prev));
-    const { error } = await supabase.from('projects').delete().eq('id', id);
-    if (error) console.error('Failed to delete project', error);
+    // Delete child tasks explicitly first — nothing here guarantees an ON DELETE
+    // CASCADE foreign key exists in the DB, so this keeps rows from being
+    // orphaned even if one isn't set up.
+    const { error: tasksError } = await supabase.from('tasks').delete().eq('project_id', id);
+    const { error: projectError } = await supabase.from('projects').delete().eq('id', id);
+    if (tasksError || projectError) {
+      console.error('Failed to delete project', tasksError || projectError);
+      if (removedProject) setProjects((prev) => [...prev, removedProject]);
+      setTasks((prev) => [...prev, ...removedTasks]);
+      pushToast('Failed to delete project — try again.');
+    }
   }
 
   async function addTask({ title, assignees, priority, due }) {
@@ -765,12 +812,22 @@ export default function App() {
     const task = { id, title, assignees, priority, due, status: 'backlog', projectId: selectedProjectId };
     setTasks((prev) => [...prev, task]);
     const { error } = await supabase.from('tasks').insert(taskToRow(task));
-    if (error) console.error('Failed to save task', error);
+    if (error) {
+      console.error('Failed to save task', error);
+      setTasks((prev) => prev.filter((t) => t.id !== id));
+      pushToast('Failed to save task — try again.');
+    }
   }
   async function deleteTask(id) {
+    if (!window.confirm('Delete this task? This can\'t be undone.')) return;
+    const removed = tasks.find((t) => t.id === id);
     setTasks((prev) => prev.filter((t) => t.id !== id));
     const { error } = await supabase.from('tasks').delete().eq('id', id);
-    if (error) console.error('Failed to delete task', error);
+    if (error) {
+      console.error('Failed to delete task', error);
+      if (removed) setTasks((prev) => [...prev, removed]);
+      pushToast('Failed to delete task — try again.');
+    }
   }
   function handleDragStart(e, taskId) {
     e.dataTransfer.setData('text/plain', taskId);
@@ -778,15 +835,22 @@ export default function App() {
   async function handleDrop(e, status) {
     e.preventDefault();
     const id = e.dataTransfer.getData('text/plain');
+    const prevStatus = tasks.find((t) => t.id === id)?.status;
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status } : t)));
     const { error } = await supabase.from('tasks').update({ status }).eq('id', id);
-    if (error) console.error('Failed to update task status', error);
+    if (error) {
+      console.error('Failed to update task status', error);
+      if (prevStatus) setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: prevStatus } : t)));
+      pushToast('Failed to move task — try again.');
+    }
   }
   async function moveTask(id, direction) {
     let newStatus = null;
+    let prevStatus = null;
     setTasks((prev) =>
       prev.map((t) => {
         if (t.id !== id) return t;
+        prevStatus = t.status;
         const idx = STATUSES.indexOf(t.status);
         const newIdx = Math.min(Math.max(idx + direction, 0), STATUSES.length - 1);
         newStatus = STATUSES[newIdx];
@@ -795,7 +859,11 @@ export default function App() {
     );
     if (newStatus) {
       const { error } = await supabase.from('tasks').update({ status: newStatus }).eq('id', id);
-      if (error) console.error('Failed to update task status', error);
+      if (error) {
+        console.error('Failed to update task status', error);
+        setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: prevStatus } : t)));
+        pushToast('Failed to move task — try again.');
+      }
     }
   }
 
@@ -804,12 +872,21 @@ export default function App() {
     const log = { id, personId, note, tag, createdAt: new Date().toISOString() };
     setLogs((prev) => [...prev, log]);
     const { error } = await supabase.from('logs').insert(logToRow(log));
-    if (error) console.error('Failed to save log', error);
+    if (error) {
+      console.error('Failed to save log', error);
+      setLogs((prev) => prev.filter((l) => l.id !== id));
+      pushToast('Failed to save log entry — try again.');
+    }
   }
   async function deleteLog(id) {
+    const removed = logs.find((l) => l.id === id);
     setLogs((prev) => prev.filter((l) => l.id !== id));
     const { error } = await supabase.from('logs').delete().eq('id', id);
-    if (error) console.error('Failed to delete log', error);
+    if (error) {
+      console.error('Failed to delete log', error);
+      if (removed) setLogs((prev) => [...prev, removed]);
+      pushToast('Failed to delete log entry — try again.');
+    }
   }
 
   async function addMember({ name, role }) {
@@ -817,13 +894,43 @@ export default function App() {
     const member = { id, name, role: role || 'Team member', color: MEMBER_COLORS[team.length % MEMBER_COLORS.length], initials: initialsFromName(name), skills: [] };
     setTeam((prev) => [...prev, member]);
     const { error } = await supabase.from('team_members').insert(memberToRow(member));
-    if (error) console.error('Failed to save team member', error);
+    if (error) {
+      console.error('Failed to save team member', error);
+      setTeam((prev) => prev.filter((m) => m.id !== id));
+      pushToast('Failed to save team member — try again.');
+    }
   }
   async function deleteMember(id) {
+    const removedMember = team.find((m) => m.id === id);
+    const affectedTasks = tasks.filter((t) => t.assignees.includes(id));
+    const warning = affectedTasks.length > 0 ? ` They'll be unassigned from ${affectedTasks.length} task${affectedTasks.length === 1 ? '' : 's'}.` : '';
+    if (!window.confirm(`Remove ${removedMember?.name}?${warning}`)) return;
+
     setTeam((prev) => prev.filter((m) => m.id !== id));
     setSelectedMember((prev) => (prev === id ? null : prev));
-    const { error } = await supabase.from('team_members').delete().eq('id', id);
-    if (error) console.error('Failed to delete team member', error);
+    setTasks((prev) => prev.map((t) => (t.assignees.includes(id) ? { ...t, assignees: t.assignees.filter((a) => a !== id) } : t)));
+
+    const { error: memberError } = await supabase.from('team_members').delete().eq('id', id);
+    if (memberError) {
+      console.error('Failed to delete team member', memberError);
+      if (removedMember) setTeam((prev) => [...prev, removedMember]);
+      setTasks((prev) => prev.map((t) => {
+        const original = affectedTasks.find((a) => a.id === t.id);
+        return original ? { ...t, assignees: original.assignees } : t;
+      }));
+      pushToast('Failed to remove team member — try again.');
+      return;
+    }
+    if (affectedTasks.length > 0) {
+      const results = await Promise.all(
+        affectedTasks.map((t) => supabase.from('tasks').update({ assignees: t.assignees.filter((a) => a !== id) }).eq('id', t.id))
+      );
+      const taskError = results.find((r) => r.error)?.error;
+      if (taskError) {
+        console.error('Failed to update task assignees after removing member', taskError);
+        pushToast('Member removed, but some tasks may still reference them.');
+      }
+    }
   }
 
   // Team-wide workload stats — deliberately span every project, not just the active one.
@@ -1375,6 +1482,8 @@ export default function App() {
           )}
         </main>
       </div>
+
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
