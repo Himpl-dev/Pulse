@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient';
 import {
   Users, Clock, AlertTriangle, Calendar, TrendingUp, PieChart as PieChartIcon,
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
-  NotebookPen, LogOut, Copy, Check, Sparkles, Loader2, Search, MessageSquare,
+  NotebookPen, LogOut, Copy, Check, Sparkles, Loader2, Search, MessageSquare, Download,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -127,6 +127,42 @@ function dueTone(dateStr) {
 }
 
 const inputStyle = { background: TOKENS.surface2, border: `1px solid ${TOKENS.border}`, color: TOKENS.text };
+
+function icsEscape(text) {
+  return String(text).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+}
+
+// Builds a minimal .ics (iCalendar) file — one all-day VEVENT per entry — so
+// deadlines can be dropped into whatever calendar app someone already uses.
+function buildICS(events) {
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Pulse Dashboard//EN', 'CALSCALE:GREGORIAN'];
+  events.forEach((e) => {
+    lines.push(
+      'BEGIN:VEVENT',
+      `UID:${e.uid}@pulse-dashboard`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART;VALUE=DATE:${e.date.replace(/-/g, '')}`,
+      `SUMMARY:${icsEscape(e.title)}`
+    );
+    if (e.description) lines.push(`DESCRIPTION:${icsEscape(e.description)}`);
+    lines.push('END:VEVENT');
+  });
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+
+function downloadTextFile(filename, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 // Supabase tables use snake_case columns; app state uses camelCase.
 function projectFromRow(r) {
@@ -1151,6 +1187,26 @@ export default function App() {
     }
   }
 
+  function exportProjectCalendar() {
+    if (!currentProject) return;
+    const events = [];
+    if (currentProject.deadline) {
+      events.push({ uid: `project-${currentProject.id}`, date: currentProject.deadline, title: `${currentProject.name} — deadline`, description: currentProject.subtitle || '' });
+    }
+    projectTasks
+      .filter((t) => t.status !== 'done')
+      .forEach((t) => {
+        const names = t.assignees.map((id) => team.find((m) => m.id === id)?.name).filter(Boolean).join(', ');
+        events.push({ uid: `task-${t.id}`, date: t.due, title: t.title, description: names ? `Assigned: ${names}` : '' });
+      });
+    if (events.length === 0) {
+      pushToast('Nothing to export — no deadlines on this project yet.');
+      return;
+    }
+    const filename = `${currentProject.name.toLowerCase().replace(/\s+/g, '-')}-deadlines.ics`;
+    downloadTextFile(filename, buildICS(events), 'text/calendar;charset=utf-8');
+  }
+
   async function addLog(personId, { note, tag }) {
     const id = crypto.randomUUID();
     const log = { id, personId, note, tag, createdAt: new Date().toISOString() };
@@ -1680,6 +1736,15 @@ export default function App() {
                   <EmptyProjectState onGo={() => setActiveTab('projects')} />
                 ) : (
                   <div className="space-y-8">
+                    <div className="flex justify-end">
+                      <button
+                        onClick={exportProjectCalendar}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium"
+                        style={{ background: TOKENS.surface, color: TOKENS.textMuted, border: `1px solid ${TOKENS.border}` }}
+                      >
+                        <Download size={13} /> Export calendar (.ics)
+                      </button>
+                    </div>
                     <TimelineSection title="Overdue" icon={AlertTriangle} color={TOKENS.coral} items={overdueList} team={team} />
                     <TimelineSection title="Due this week" icon={Clock} color={TOKENS.amber} items={dueWeekList} team={team} />
                     <TimelineSection title="Later" icon={Calendar} color={TOKENS.textMuted} items={laterList} team={team} />
