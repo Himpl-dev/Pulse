@@ -1,9 +1,9 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
 import {
   Users, Clock, AlertTriangle, Calendar, TrendingUp, PieChart as PieChartIcon,
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
-  NotebookPen, LogOut, Copy, Check, Sparkles, Loader2,
+  NotebookPen, LogOut, Copy, Check, Sparkles, Loader2, Search,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -426,14 +426,28 @@ function AddTaskForm({ team, onAdd, onCancel }) {
   );
 }
 
-function TaskCard({ task, members, onMove, onDragStart, onDelete, canMoveLeft, canMoveRight }) {
+function TaskCard({ task, members, onMove, onDragStart, onDelete, canMoveLeft, canMoveRight, highlighted }) {
   const tone = dueTone(task.due);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (highlighted && ref.current) {
+      ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [highlighted]);
+
   return (
     <div
+      ref={ref}
       draggable
       onDragStart={(e) => onDragStart(e, task.id)}
       className="rounded-lg p-3 mb-2 cursor-grab"
-      style={{ background: TOKENS.surface2, border: `1px solid ${TOKENS.border}` }}
+      style={{
+        background: TOKENS.surface2,
+        border: `1px solid ${highlighted ? TOKENS.violet : TOKENS.border}`,
+        boxShadow: highlighted ? `0 0 0 3px ${hexToRgba(TOKENS.violet, 0.25)}` : 'none',
+        transition: 'border-color 0.4s ease, box-shadow 0.4s ease',
+      }}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <span className="text-xs font-medium uppercase tracking-wide" style={{ color: PRIORITY_COLOR[task.priority] }}>
@@ -530,6 +544,81 @@ function ToastStack({ toasts, onDismiss }) {
           <button onClick={() => onDismiss(t.id)} style={{ color: TOKENS.textMuted }} aria-label="Dismiss"><X size={13} /></button>
         </div>
       ))}
+    </div>
+  );
+}
+
+function GlobalSearch({ projects, tasks, onSelectProject, onSelectTask }) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+
+  const q = query.trim().toLowerCase();
+  const matchingProjects = q.length >= 2 ? projects.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 5) : [];
+  const matchingTasks = q.length >= 2 ? tasks.filter((t) => t.title.toLowerCase().includes(q)).slice(0, 8) : [];
+  const hasResults = matchingProjects.length > 0 || matchingTasks.length > 0;
+
+  function selectProject(p) {
+    onSelectProject(p.id);
+    setQuery('');
+    setOpen(false);
+  }
+  function selectTask(t) {
+    onSelectTask(t);
+    setQuery('');
+    setOpen(false);
+  }
+
+  return (
+    <div className="relative">
+      <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full" style={{ background: TOKENS.surface }}>
+        <Search size={14} style={{ color: TOKENS.textMuted, flexShrink: 0 }} />
+        <input
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder="Search…"
+          className="bg-transparent outline-none text-sm w-24 sm:w-40"
+          style={{ color: TOKENS.text }}
+        />
+      </div>
+      {open && q.length >= 2 && (
+        <div
+          className="absolute right-0 mt-2 rounded-xl overflow-hidden z-20"
+          style={{ width: 280, maxHeight: 320, overflowY: 'auto', background: TOKENS.surface, border: `1px solid ${TOKENS.border}`, boxShadow: '0 12px 32px rgba(0,0,0,0.4)' }}
+        >
+          {!hasResults && <p className="text-xs italic px-3 py-4" style={{ color: TOKENS.textFaint }}>No matches.</p>}
+          {matchingProjects.length > 0 && (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide px-3 pt-2.5 pb-1" style={{ color: TOKENS.textFaint }}>Projects</p>
+              {matchingProjects.map((p) => (
+                <button key={p.id} onMouseDown={() => selectProject(p)} className="w-full text-left px-3 py-2 text-sm flex items-center gap-2" style={{ color: TOKENS.text }}>
+                  <FolderKanban size={13} style={{ color: TOKENS.textMuted, flexShrink: 0 }} /> <span className="truncate">{p.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {matchingTasks.length > 0 && (
+            <div>
+              <p
+                className="text-xs font-medium uppercase tracking-wide px-3 pt-2.5 pb-1"
+                style={{ color: TOKENS.textFaint, borderTop: matchingProjects.length ? `1px solid ${TOKENS.border}` : 'none' }}
+              >
+                Tasks
+              </p>
+              {matchingTasks.map((t) => {
+                const project = projects.find((p) => p.id === t.projectId);
+                return (
+                  <button key={t.id} onMouseDown={() => selectTask(t)} className="w-full text-left px-3 py-2 text-sm">
+                    <p className="truncate" style={{ color: TOKENS.text }}>{t.title}</p>
+                    <p className="text-xs truncate" style={{ color: TOKENS.textFaint }}>{project ? project.name : 'Unknown project'} · {STATUS_LABEL[t.status]}</p>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -757,6 +846,19 @@ export default function App() {
   const [showAddTask, setShowAddTask] = useState(false);
   const [loading, setLoading] = useState(true);
   const [toasts, setToasts] = useState([]);
+  const [highlightedTaskId, setHighlightedTaskId] = useState(null);
+
+  function jumpToProject(id) {
+    setSelectedProjectId(id);
+    setActiveTab('board');
+  }
+  function jumpToTask(task) {
+    setSelectedProjectId(task.projectId);
+    setActiveTab('board');
+    setSelectedMember(null);
+    setHighlightedTaskId(task.id);
+    setTimeout(() => setHighlightedTaskId((prev) => (prev === task.id ? null : prev)), 2500);
+  }
 
   function pushToast(message) {
     const id = crypto.randomUUID();
@@ -1095,6 +1197,8 @@ export default function App() {
         </nav>
 
         <div className="flex items-center gap-3">
+          <GlobalSearch projects={projects} tasks={tasks} onSelectProject={jumpToProject} onSelectTask={jumpToTask} />
+
           {deadlineDays !== null && (
             <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full font-mono text-xs" style={{ background: TOKENS.surface, color: deadlineDays < 7 ? TOKENS.amber : TOKENS.textMuted }}>
               <Calendar size={12} /> {deadlineDays}d to launch
@@ -1265,6 +1369,7 @@ export default function App() {
                                     onDelete={deleteTask}
                                     canMoveLeft={colIdx > 0}
                                     canMoveRight={colIdx < STATUSES.length - 1}
+                                    highlighted={task.id === highlightedTaskId}
                                   />
                                 );
                               })}
