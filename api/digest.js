@@ -61,7 +61,15 @@ ${section('Per-member load', members)}`;
     }
 
     const data = await aiRes.json();
-    const digest = data.content?.[0]?.text || '';
+    const digest = (data.content || [])
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n\n')
+      .trim();
+    if (!digest) {
+      console.error('Anthropic returned no text content', JSON.stringify(data));
+      return res.status(502).json({ error: 'Digest came back empty — try again' });
+    }
     return res.status(200).json({ digest });
   } catch (err) {
     console.error('Digest handler error', err);

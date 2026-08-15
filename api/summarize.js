@@ -53,7 +53,15 @@ export default async function handler(req, res) {
     }
 
     const data = await aiRes.json();
-    const summary = data.content?.[0]?.text || '';
+    const summary = (data.content || [])
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n\n')
+      .trim();
+    if (!summary) {
+      console.error('Anthropic returned no text content', JSON.stringify(data));
+      return res.status(502).json({ error: 'Summary came back empty — try again' });
+    }
     return res.status(200).json({ summary });
   } catch (err) {
     console.error('Summarize handler error', err);
