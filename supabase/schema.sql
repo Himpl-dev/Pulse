@@ -84,3 +84,8 @@ create policy "authenticated only" on task_comments
 -- 7. Recurring tasks: 'none' | 'weekly' | 'monthly'. When a task with a repeat
 --    set is moved to Done, the app creates the next occurrence automatically.
 alter table tasks add column if not exists repeat text not null default 'none';
+
+-- 8. Task start dates, for the Gantt view on the Timeline tab. NULL for every
+--    existing row (and left optional going forward) — the app renders those
+--    as a single-day marker at `due` rather than guessing a start date.
+alter table tasks add column if not exists start_date date;

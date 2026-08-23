@@ -4,29 +4,20 @@ import {
   Users, Clock, AlertTriangle, Calendar, TrendingUp, PieChart as PieChartIcon,
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
   NotebookPen, LogOut, Copy, Check, Sparkles, Loader2, Search, MessageSquare, Download, Repeat,
+  Sun, Moon,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   PieChart, Pie, Legend,
 } from 'recharts';
+import { useTheme, THEME_HEX, TOKENS, hexToRgba } from './theme';
+import { useUrlTab } from './hooks/useUrlTab';
+import { useCountUp } from './hooks/useCountUp';
+import { CommandPalette } from './components/CommandPalette';
+import { OnboardingEmptyState } from './components/OnboardingEmptyState';
+import { GanttChart } from './components/GanttChart';
 
 /* ---------------------------------- tokens --------------------------------- */
-
-const TOKENS = {
-  bg: '#14171C',
-  surface: '#1B1F27',
-  surface2: '#21262F',
-  border: '#2A303B',
-  text: '#EDEFF2',
-  textMuted: '#8B93A1',
-  textFaint: '#5C6472',
-  blue: '#5B8DEF',
-  teal: '#45C4A0',
-  amber: '#F2A93B',
-  coral: '#F2665E',
-  violet: '#9B8CF2',
-  magenta: '#E85DA0',
-};
 
 const PRIORITY_COLOR = { high: TOKENS.coral, medium: TOKENS.amber, low: TOKENS.blue };
 
@@ -95,14 +86,6 @@ const INITIAL_TEAM = [];
 const INITIAL_COMMENTS = [];
 
 /* --------------------------------- helpers ---------------------------------- */
-
-function hexToRgba(hex, alpha) {
-  const h = hex.replace('#', '');
-  const r = parseInt(h.substring(0, 2), 16);
-  const g = parseInt(h.substring(2, 4), 16);
-  const b = parseInt(h.substring(4, 6), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
-}
 
 function daysUntil(dateStr) {
   const now = new Date();
@@ -179,10 +162,10 @@ function projectToRow(p) {
   return { id: p.id, name: p.name, subtitle: p.subtitle, deadline: p.deadline, customer_id: p.customerId };
 }
 function taskFromRow(r) {
-  return { id: r.id, title: r.title, assignees: r.assignees, priority: r.priority, due: r.due, status: r.status, projectId: r.project_id, repeat: r.repeat || 'none' };
+  return { id: r.id, title: r.title, assignees: r.assignees, priority: r.priority, due: r.due, status: r.status, projectId: r.project_id, repeat: r.repeat || 'none', startDate: r.start_date || null };
 }
 function taskToRow(t) {
-  return { id: t.id, title: t.title, assignees: t.assignees, priority: t.priority, due: t.due, status: t.status, project_id: t.projectId, repeat: t.repeat || 'none' };
+  return { id: t.id, title: t.title, assignees: t.assignees, priority: t.priority, due: t.due, status: t.status, project_id: t.projectId, repeat: t.repeat || 'none', start_date: t.startDate || null };
 }
 function logFromRow(r) {
   return { id: r.id, personId: r.person_id, note: r.note, tag: r.tag, createdAt: r.created_at };
@@ -241,14 +224,15 @@ function CustomerLogo({ customer, size = 36 }) {
   );
 }
 
-function RadialProgress({ pct, size = 56, stroke = 5, color, children }) {
+function RadialProgress({ pct, size = 56, stroke = 5, color, trackColor = THEME_HEX.dark.border, children }) {
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const offset = c - (Math.min(Math.max(pct, 0), 100) / 100) * c;
   return (
     <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
       <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-        <circle cx={size / 2} cy={size / 2} r={r} stroke={TOKENS.border} strokeWidth={stroke} fill="none" />
+        {/* raw SVG attribute, not a style object — can't resolve a CSS var, so this needs a real resolved hex */}
+        <circle cx={size / 2} cy={size / 2} r={r} stroke={trackColor} strokeWidth={stroke} fill="none" />
         <circle
           cx={size / 2} cy={size / 2} r={r} stroke={color} strokeWidth={stroke} fill="none"
           strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round"
@@ -260,6 +244,14 @@ function RadialProgress({ pct, size = 56, stroke = 5, color, children }) {
       </div>
     </div>
   );
+}
+
+// Counts up to `value` instead of snapping in — its own component (rather
+// than calling useCountUp inline at each call site) so it's safe to use
+// inside a .map() without breaking the rules of hooks.
+function StatNumber({ value, suffix = '%' }) {
+  const display = useCountUp(value);
+  return <>{display}{suffix}</>;
 }
 
 function PulseDot({ color, pulse, size = 8 }) {
@@ -310,6 +302,32 @@ function LoginScreen({ onSignIn }) {
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
+    </div>
+  );
+}
+
+// Persistent "where am I" context for project-scoped tabs (Board, Timeline) —
+// project, its customer, and (Board only) the active member filter.
+function Breadcrumb({ project, customer, memberFilter, onClearMember }) {
+  if (!project) return null;
+  return (
+    <div className="flex items-center gap-1.5 text-xs mb-3 flex-wrap" style={{ color: TOKENS.textFaint }}>
+      <span style={{ color: TOKENS.textMuted }}>{project.name}</span>
+      {customer && (
+        <>
+          <span>/</span>
+          <span>{customer.name}</span>
+        </>
+      )}
+      {memberFilter && (
+        <>
+          <span>/</span>
+          <span className="flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full" style={{ background: TOKENS.surface2, color: TOKENS.text }}>
+            {memberFilter.name}
+            <button onClick={onClearMember} aria-label="Clear member filter" style={{ color: TOKENS.textMuted }}><X size={11} /></button>
+          </span>
+        </>
+      )}
     </div>
   );
 }
@@ -431,12 +449,13 @@ function AddTaskForm({ team, onAdd, onCancel }) {
   const [assignees, setAssignees] = useState(team.length ? [team[0].id] : []);
   const [priority, setPriority] = useState('medium');
   const [due, setDue] = useState('');
+  const [startDate, setStartDate] = useState('');
   const [repeat, setRepeat] = useState('none');
 
   function submit(e) {
     e.preventDefault();
     if (!title.trim() || !due || assignees.length === 0) return;
-    onAdd({ title: title.trim(), assignees, priority, due, repeat });
+    onAdd({ title: title.trim(), assignees, priority, due, repeat, startDate: startDate || null });
   }
 
   const suggestions = useMemo(
@@ -453,7 +472,8 @@ function AddTaskForm({ team, onAdd, onCancel }) {
         <option value="medium">Medium</option>
         <option value="low">Low</option>
       </select>
-      <input type="date" required value={due} onChange={(e) => setDue(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle} />
+      <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle} title="Start date (optional — used for the Gantt view)" />
+      <input type="date" required value={due} onChange={(e) => setDue(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle} title="Due date" />
       <select value={repeat} onChange={(e) => setRepeat(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle} title="Repeat">
         <option value="none">Doesn't repeat</option>
         <option value="weekly">Repeats weekly</option>
@@ -564,7 +584,7 @@ function TaskCard({ task, members, onMove, onDragStart, onDelete, onOpen, canMov
   );
 }
 
-function TaskDetailModal({ task, project, members, team, comments, onClose, onAddComment, onDeleteComment }) {
+function TaskDetailModal({ task, project, members, team, comments, onClose, onAddComment, onDeleteComment, onUpdateStartDate }) {
   const [authorId, setAuthorId] = useState(team[0]?.id || '');
   const [body, setBody] = useState('');
   const tone = dueTone(task.due);
@@ -607,7 +627,21 @@ function TaskDetailModal({ task, project, members, team, comments, onClose, onAd
             ))}
             {members.length === 0 && <span className="text-xs italic" style={{ color: TOKENS.textFaint }}>Unassigned</span>}
           </div>
-          <span className="font-mono text-xs flex-shrink-0" style={{ color: tone.color }}>{formatDue(task.due)}</span>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <label className="flex items-center gap-1 text-xs" style={{ color: TOKENS.textFaint }}>
+              Start
+              <input
+                type="date"
+                value={task.startDate || ''}
+                max={task.due}
+                onChange={(e) => onUpdateStartDate(task.id, e.target.value || null)}
+                className="rounded px-1.5 py-0.5 text-xs"
+                style={inputStyle}
+                title="Start date — used for the Gantt view"
+              />
+            </label>
+            <span className="font-mono text-xs" style={{ color: tone.color }}>{formatDue(task.due)}</span>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2.5" style={{ minHeight: 80 }}>
@@ -1223,9 +1257,13 @@ export default function App() {
   const [comments, setComments] = useState(INITIAL_COMMENTS);
   const [openTaskId, setOpenTaskId] = useState(null);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
-  const [activeTab, setActiveTab] = useState('projects');
+  const [activeTab, setActiveTab] = useUrlTab(TABS, 'projects');
+  const { theme, toggleTheme } = useTheme();
+  const themeHex = THEME_HEX[theme];
   const [selectedMember, setSelectedMember] = useState(null);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [timelineView, setTimelineView] = useState('list');
   const [showAddTask, setShowAddTask] = useState(false);
   const [loading, setLoading] = useState(true);
   const [toasts, setToasts] = useState([]);
@@ -1274,6 +1312,22 @@ export default function App() {
 
   const currentProject = projects.find((p) => p.id === selectedProjectId) || null;
   const projectTasks = tasks.filter((t) => t.projectId === selectedProjectId);
+  // True first run: nothing's been set up at all yet, vs. "projects exist but
+  // none is currently selected" (e.g. after deleting the active one).
+  const isFirstRun = !loading && projects.length === 0 && team.length === 0;
+
+  // Cmd/Ctrl+K opens the command palette from anywhere, including while
+  // focused in another input — that's the whole point of the shortcut.
+  useEffect(() => {
+    function onKeyDown(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // Track the signed-in session; the app renders a login gate until one exists.
   useEffect(() => {
@@ -1389,9 +1443,9 @@ export default function App() {
     }
   }
 
-  async function addTask({ title, assignees, priority, due, repeat }) {
+  async function addTask({ title, assignees, priority, due, repeat, startDate }) {
     const id = `t${tasks.length}-${Math.round(Math.random() * 1e6)}`;
-    const task = { id, title, assignees, priority, due, status: 'backlog', projectId: selectedProjectId, repeat: repeat || 'none' };
+    const task = { id, title, assignees, priority, due, status: 'backlog', projectId: selectedProjectId, repeat: repeat || 'none', startDate: startDate || null };
     setTasks((prev) => [...prev, task]);
     const { error } = await supabase.from('tasks').insert(taskToRow(task));
     if (error) {
@@ -1458,6 +1512,17 @@ export default function App() {
     if (status === 'done' && prevStatus !== 'done' && original) {
       celebrateCompletion(original);
       if (original.repeat && original.repeat !== 'none') spawnRecurringTask(original);
+    }
+  }
+  async function updateTaskStartDate(id, startDate) {
+    const original = tasks.find((t) => t.id === id);
+    const prevStartDate = original?.startDate ?? null;
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, startDate } : t)));
+    const { error } = await supabase.from('tasks').update({ start_date: startDate }).eq('id', id);
+    if (error) {
+      console.error('Failed to update task start date', error);
+      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, startDate: prevStartDate } : t)));
+      pushToast('Failed to update start date — try again.');
     }
   }
   async function moveTask(id, direction) {
@@ -1692,12 +1757,13 @@ export default function App() {
           to { opacity: 1; transform: translateY(0); }
         }
         .animate-fadein { animation: fadeIn 0.35s ease; }
+        .stagger-item { animation: fadeIn 0.35s ease both; }
         @keyframes confettiFall {
           from { transform: translateY(0) rotate(0deg); opacity: 1; }
           to { transform: translateY(100vh) rotate(720deg); opacity: 0; }
         }
         @media (prefers-reduced-motion: reduce) {
-          *, .animate-fadein { animation: none !important; transition: none !important; }
+          *, .animate-fadein, .stagger-item { animation: none !important; transition: none !important; }
         }
       `}</style>
 
@@ -1727,6 +1793,16 @@ export default function App() {
 
         <div className="flex items-center gap-3">
           <GlobalSearch projects={projects} tasks={tasks} onSelectProject={jumpToProject} onSelectTask={jumpToTask} />
+
+          <button
+            onClick={() => setPaletteOpen(true)}
+            className="hidden md:flex items-center gap-1 px-2 py-1 rounded-full font-mono text-xs"
+            style={{ background: TOKENS.surface, color: TOKENS.textFaint }}
+            aria-label="Open command palette"
+            title="Command palette"
+          >
+            <kbd>⌘</kbd><kbd>K</kbd>
+          </button>
 
           {deadlineDays !== null && (
             <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full font-mono text-xs" style={{ background: TOKENS.surface, color: deadlineDays < 7 ? TOKENS.amber : TOKENS.textMuted }}>
@@ -1769,9 +1845,13 @@ export default function App() {
             )}
           </div>
 
-          <RadialProgress pct={overall.pct} size={40} stroke={4} color={overall.tone}>
-            <span className="font-mono" style={{ fontSize: 9, color: TOKENS.text }}>{overall.pct}%</span>
+          <RadialProgress pct={overall.pct} size={40} stroke={4} color={overall.tone} trackColor={themeHex.border}>
+            <span className="font-mono" style={{ fontSize: 9, color: TOKENS.text }}><StatNumber value={overall.pct} /></span>
           </RadialProgress>
+
+          <button onClick={toggleTheme} className="p-2 rounded-full" style={{ background: TOKENS.surface }} aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+            {theme === 'dark' ? <Sun size={15} style={{ color: TOKENS.textMuted }} /> : <Moon size={15} style={{ color: TOKENS.textMuted }} />}
+          </button>
 
           <button onClick={signOut} className="p-2 rounded-full" style={{ background: TOKENS.surface }} aria-label="Sign out" title="Sign out">
             <LogOut size={15} style={{ color: TOKENS.textMuted }} />
@@ -1793,12 +1873,18 @@ export default function App() {
             </div>
             <div className="space-y-1">
               {memberStats.map((m) => {
-                const active = selectedMember === m.id;
+                // The member filter only affects the Board tab — keep the roster visible
+                // everywhere as reference info, but don't let it look clickable/active
+                // elsewhere, since clicking here wouldn't do anything on those tabs.
+                const filterable = activeTab === 'board';
+                const active = filterable && selectedMember === m.id;
                 return (
                   <button
                     key={m.id}
-                    onClick={() => setSelectedMember(active ? null : m.id)}
-                    className="w-full flex items-center gap-2.5 p-2 rounded-lg text-left transition-colors"
+                    onClick={() => filterable && setSelectedMember(active ? null : m.id)}
+                    aria-disabled={!filterable}
+                    title={filterable ? undefined : 'Member filtering applies to the Board tab'}
+                    className={`w-full flex items-center gap-2.5 p-2 rounded-lg text-left transition-colors ${filterable ? '' : 'cursor-default'}`}
                     style={{ background: active ? hexToRgba(m.color, 0.12) : 'transparent', border: `1px solid ${active ? hexToRgba(m.color, 0.4) : 'transparent'}` }}
                   >
                     <div className="relative flex-shrink-0">
@@ -1816,7 +1902,7 @@ export default function App() {
                         <div className="flex-1 rounded-full overflow-hidden" style={{ height: 3, background: TOKENS.surface2 }}>
                           <div style={{ width: `${m.pct}%`, height: '100%', background: m.tone, transition: 'width 0.4s ease' }} />
                         </div>
-                        <span className="font-mono flex-shrink-0" style={{ fontSize: 10, color: TOKENS.textFaint }}>{m.pct}%</span>
+                        <span className="font-mono flex-shrink-0" style={{ fontSize: 10, color: TOKENS.textFaint }}><StatNumber value={m.pct} /></span>
                       </div>
                     </div>
                   </button>
@@ -1835,20 +1921,20 @@ export default function App() {
             {activeTab === 'board' && (
               <div>
                 {!currentProject ? (
-                  <EmptyProjectState onGo={() => setActiveTab('projects')} />
+                  isFirstRun ? (
+                    <OnboardingEmptyState onGo={() => setActiveTab('projects')} />
+                  ) : (
+                    <EmptyProjectState onGo={() => setActiveTab('projects')} />
+                  )
                 ) : (
                   <>
-                    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-                      <div className="flex items-center gap-2 text-sm min-h-[26px]" style={{ color: TOKENS.textMuted }}>
-                        {selectedMemberObj && (
-                          <>
-                            <span>Showing tasks for <strong style={{ color: TOKENS.text }}>{selectedMemberObj.name}</strong></span>
-                            <button onClick={() => setSelectedMember(null)} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs" style={{ border: `1px solid ${TOKENS.border}` }}>
-                              <X size={12} /> Clear
-                            </button>
-                          </>
-                        )}
-                      </div>
+                    <Breadcrumb
+                      project={currentProject}
+                      customer={CUSTOMERS.find((c) => c.id === currentProject.customerId)}
+                      memberFilter={selectedMemberObj}
+                      onClearMember={() => setSelectedMember(null)}
+                    />
+                    <div className="flex items-center justify-end mb-4 flex-wrap gap-2">
                       <button
                         onClick={() => setShowAddTask((s) => !s)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium"
@@ -1872,7 +1958,8 @@ export default function App() {
                         return (
                           <div
                             key={status}
-                            className="flex-shrink-0 w-64 md:w-72"
+                            className="flex-shrink-0 w-64 md:w-72 stagger-item"
+                            style={{ animationDelay: `${colIdx * 40}ms` }}
                             onDragOver={(e) => e.preventDefault()}
                             onDrop={(e) => handleDrop(e, status)}
                           >
@@ -1886,22 +1973,23 @@ export default function App() {
                                   {selectedMemberObj ? `No ${STATUS_LABEL[status].toLowerCase()} tasks` : 'Nothing here'}
                                 </p>
                               )}
-                              {cards.map((task) => {
+                              {cards.map((task, taskIdx) => {
                                 const members = task.assignees.map((id) => team.find((m) => m.id === id)).filter(Boolean);
                                 return (
-                                  <TaskCard
-                                    key={task.id}
-                                    task={task}
-                                    members={members}
-                                    onMove={moveTask}
-                                    onDragStart={handleDragStart}
-                                    onDelete={deleteTask}
-                                    onOpen={setOpenTaskId}
-                                    canMoveLeft={colIdx > 0}
-                                    canMoveRight={colIdx < STATUSES.length - 1}
-                                    highlighted={task.id === highlightedTaskId}
-                                    commentCount={comments.filter((c) => c.taskId === task.id).length}
-                                  />
+                                  <div key={task.id} className="stagger-item" style={{ animationDelay: `${taskIdx * 25}ms` }}>
+                                    <TaskCard
+                                      task={task}
+                                      members={members}
+                                      onMove={moveTask}
+                                      onDragStart={handleDragStart}
+                                      onDelete={deleteTask}
+                                      onOpen={setOpenTaskId}
+                                      canMoveLeft={colIdx > 0}
+                                      canMoveRight={colIdx < STATUSES.length - 1}
+                                      highlighted={task.id === highlightedTaskId}
+                                      commentCount={comments.filter((c) => c.taskId === task.id).length}
+                                    />
+                                  </div>
                                 );
                               })}
                             </div>
@@ -1926,8 +2014,8 @@ export default function App() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-                  {memberStats.map((m) => (
-                    <div key={m.id} className="rounded-xl p-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
+                  {memberStats.map((m, i) => (
+                    <div key={m.id} className="rounded-xl p-4 stagger-item" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}`, animationDelay: `${i * 30}ms` }}>
                       <div className="flex items-center gap-3 mb-3">
                         <div className="w-11 h-11 rounded-full flex items-center justify-center font-display font-semibold text-sm flex-shrink-0" style={{ background: hexToRgba(m.color, 0.18), color: m.color, border: `1px solid ${hexToRgba(m.color, 0.4)}` }}>
                           {m.initials}
@@ -1939,8 +2027,8 @@ export default function App() {
                           </div>
                           <span className="text-xs" style={{ color: TOKENS.textMuted }}>{m.role}</span>
                         </div>
-                        <RadialProgress pct={m.pct} size={44} stroke={4} color={m.tone}>
-                          <span className="font-mono" style={{ fontSize: 10, color: TOKENS.text }}>{m.pct}%</span>
+                        <RadialProgress pct={m.pct} size={44} stroke={4} color={m.tone} trackColor={themeHex.border}>
+                          <span className="font-mono" style={{ fontSize: 10, color: TOKENS.text }}><StatNumber value={m.pct} /></span>
                         </RadialProgress>
                         <button onClick={() => deleteMember(m.id)} aria-label={`Remove ${m.name}`} title="Remove member" style={{ color: TOKENS.textMuted }} className="flex-shrink-0">
                           <Trash2 size={14} />
@@ -1983,13 +2071,14 @@ export default function App() {
                     <div style={{ width: '100%', height: 220 }}>
                       <ResponsiveContainer>
                         <BarChart data={memberStats.map((m) => ({ name: m.name.split(' ')[0], pct: m.pct, fill: m.tone }))} layout="vertical" margin={{ left: 10, right: 24, top: 4, bottom: 4 }}>
-                          <XAxis type="number" domain={[0, 100]} tick={{ fill: TOKENS.textMuted, fontSize: 11 }} axisLine={{ stroke: TOKENS.border }} tickLine={false} />
-                          <YAxis type="category" dataKey="name" width={70} tick={{ fill: TOKENS.textMuted, fontSize: 12 }} axisLine={{ stroke: TOKENS.border }} tickLine={false} />
+                          {/* recharts forwards tick/axisLine/cursor into raw SVG attributes, not style — need resolved hex, not a CSS var */}
+                          <XAxis type="number" domain={[0, 100]} tick={{ fill: themeHex.textMuted, fontSize: 11 }} axisLine={{ stroke: themeHex.border }} tickLine={false} />
+                          <YAxis type="category" dataKey="name" width={70} tick={{ fill: themeHex.textMuted, fontSize: 12 }} axisLine={{ stroke: themeHex.border }} tickLine={false} />
                           <Tooltip
                             contentStyle={{ background: TOKENS.surface2, border: `1px solid ${TOKENS.border}`, borderRadius: 8, fontSize: 12 }}
                             labelStyle={{ color: TOKENS.text }}
                             formatter={(v) => [`${v}%`, 'Complete']}
-                            cursor={{ fill: TOKENS.surface2 }}
+                            cursor={{ fill: themeHex.surface2 }}
                           />
                           <Bar dataKey="pct" radius={[0, 4, 4, 0]} barSize={16}>
                             {memberStats.map((m, i) => <Cell key={i} fill={m.tone} />)}
@@ -2042,10 +2131,30 @@ export default function App() {
             {activeTab === 'timeline' && (
               <div>
                 {!currentProject ? (
-                  <EmptyProjectState onGo={() => setActiveTab('projects')} />
+                  isFirstRun ? (
+                    <OnboardingEmptyState onGo={() => setActiveTab('projects')} />
+                  ) : (
+                    <EmptyProjectState onGo={() => setActiveTab('projects')} />
+                  )
                 ) : (
                   <div className="space-y-8">
-                    <div className="flex justify-end">
+                    <Breadcrumb
+                      project={currentProject}
+                      customer={CUSTOMERS.find((c) => c.id === currentProject.customerId)}
+                    />
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-1 p-1 rounded-full" style={{ background: TOKENS.surface2 }}>
+                        {['list', 'gantt'].map((v) => (
+                          <button
+                            key={v}
+                            onClick={() => setTimelineView(v)}
+                            className="px-3 py-1 rounded-full text-xs font-medium capitalize"
+                            style={{ background: timelineView === v ? TOKENS.surface : 'transparent', color: timelineView === v ? TOKENS.text : TOKENS.textMuted }}
+                          >
+                            {v}
+                          </button>
+                        ))}
+                      </div>
                       <button
                         onClick={exportProjectCalendar}
                         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium"
@@ -2054,9 +2163,21 @@ export default function App() {
                         <Download size={13} /> Export calendar (.ics)
                       </button>
                     </div>
-                    <TimelineSection title="Overdue" icon={AlertTriangle} color={TOKENS.coral} items={overdueList} team={team} />
-                    <TimelineSection title="Due this week" icon={Clock} color={TOKENS.amber} items={dueWeekList} team={team} />
-                    <TimelineSection title="Later" icon={Calendar} color={TOKENS.textMuted} items={laterList} team={team} />
+
+                    {timelineView === 'gantt' ? (
+                      <GanttChart
+                        tasks={[...overdueList, ...dueWeekList, ...laterList]}
+                        priorityColor={PRIORITY_COLOR}
+                        projectDeadline={currentProject.deadline}
+                        onOpenTask={setOpenTaskId}
+                      />
+                    ) : (
+                      <>
+                        <TimelineSection title="Overdue" icon={AlertTriangle} color={TOKENS.coral} items={overdueList} team={team} />
+                        <TimelineSection title="Due this week" icon={Clock} color={TOKENS.amber} items={dueWeekList} team={team} />
+                        <TimelineSection title="Later" icon={Calendar} color={TOKENS.textMuted} items={laterList} team={team} />
+                      </>
+                    )}
                     {overdueList.length === 0 && dueWeekList.length === 0 && laterList.length === 0 && (
                       <p className="text-sm italic" style={{ color: TOKENS.textFaint }}>Nothing on the timeline yet.</p>
                     )}
@@ -2067,8 +2188,8 @@ export default function App() {
 
             {activeTab === 'customers' && (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {customerStats.map((c) => (
-                  <div key={c.id} className="rounded-xl p-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
+                {customerStats.map((c, i) => (
+                  <div key={c.id} className="rounded-xl p-4 stagger-item" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}`, animationDelay: `${i * 30}ms` }}>
                     <div className="flex items-center gap-2.5 mb-3">
                       <CustomerLogo customer={c} />
                       <div className="min-w-0">
@@ -2180,6 +2301,18 @@ export default function App() {
         </>
       )}
 
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        tabs={TABS}
+        onSelectTab={setActiveTab}
+        projects={projects}
+        tasks={tasks}
+        statusLabel={STATUS_LABEL}
+        onSelectProject={jumpToProject}
+        onSelectTask={jumpToTask}
+      />
+
       {openTask && (
         <TaskDetailModal
           task={openTask}
@@ -2190,6 +2323,7 @@ export default function App() {
           onClose={() => setOpenTaskId(null)}
           onAddComment={(authorId, body) => addComment(openTask.id, authorId, body)}
           onDeleteComment={deleteComment}
+          onUpdateStartDate={updateTaskStartDate}
         />
       )}
     </div>

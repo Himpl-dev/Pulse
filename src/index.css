@@ -1,1 +1,23 @@
 @import "tailwindcss";
+
+:root {
+  --token-bg: #14171C;
+  --token-surface: #1B1F27;
+  --token-surface2: #21262F;
+  --token-border: #2A303B;
+  --token-text: #EDEFF2;
+  --token-text-muted: #8B93A1;
+  --token-text-faint: #5C6472;
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --token-bg: #F4F5F7;
+  --token-surface: #FFFFFF;
+  --token-surface2: #EEF0F3;
+  --token-border: #DBDFE6;
+  --token-text: #171A1F;
+  --token-text-muted: #5B6270;
+  --token-text-faint: #8891A0;
+  color-scheme: light;
+}
