@@ -287,6 +287,31 @@ function PulseDot({ color, pulse, size = 8 }) {
   );
 }
 
+// Loading indicator: a large bold monospace "i" with the same pulsing dot
+// as the header wordmark, sized via `size` (font-size in px).
+function LoadingMark({ size = 64 }) {
+  const dotSize = Math.max(Math.round(size * 0.14), 5);
+  return (
+    <span role="status" aria-label="Loading" style={{ position: 'relative', display: 'inline-block' }}>
+      <span className="font-mono font-bold" style={{ fontSize: size, lineHeight: 1, color: TOKENS.blue }}>i</span>
+      <span
+        style={{
+          position: 'absolute', top: size * 0.32, left: '50%', transform: 'translateX(-50%)',
+          width: dotSize, height: dotSize,
+        }}
+      >
+        <span
+          style={{
+            position: 'absolute', inset: 0, borderRadius: '9999px', background: TOKENS.blue,
+            animation: 'pulse-ring 1.8s cubic-bezier(0.4,0,0.6,1) infinite',
+          }}
+        />
+        <span style={{ position: 'absolute', inset: 0, borderRadius: '9999px', background: TOKENS.blue }} />
+      </span>
+    </span>
+  );
+}
+
 function LoginScreen({ onSignIn }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -1784,7 +1809,7 @@ export default function App() {
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center font-body" style={{ background: TOKENS.bg, color: TOKENS.textFaint }}>
-        <p className="text-sm italic">Loading…</p>
+        <LoadingMark size={88} />
       </div>
     );
   }
@@ -1973,7 +1998,9 @@ export default function App() {
         {/* main content */}
         <main className="flex-1 p-4 md:p-6 min-w-0">
           {loading ? (
-            <p className="text-sm italic" style={{ color: TOKENS.textFaint }}>Loading…</p>
+            <div className="flex items-center justify-center" style={{ minHeight: 200 }}>
+              <LoadingMark size={48} />
+            </div>
           ) : (
           <div key={activeTab} className="animate-fadein">
             {activeTab === 'board' && (
