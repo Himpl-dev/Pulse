@@ -194,7 +194,24 @@ function Logo() {
   return (
     <div className="flex flex-col leading-none select-none flex-shrink-0">
       <span className="font-display font-bold text-lg tracking-tight" style={{ color: TOKENS.text }}>
-        bytron<span style={{ color: TOKENS.blue }}>i</span>c
+        bytron
+        <span style={{ position: 'relative', display: 'inline-block' }}>
+          <span style={{ color: TOKENS.blue }}>i</span>
+          {/* Laid over the letter's own tittle so it reads as the dot pulsing — same
+              pulse-ring keyframe PulseDot uses, but without its background-colored
+              border (which, at this small a size, ate the whole dot under border-box
+              sizing and made it invisible). */}
+          <span style={{ position: 'absolute', top: 6, left: '50%', transform: 'translateX(-50%)', width: 5, height: 5 }}>
+            <span
+              style={{
+                position: 'absolute', inset: 0, borderRadius: '9999px', background: TOKENS.blue,
+                animation: 'pulse-ring 1.8s cubic-bezier(0.4,0,0.6,1) infinite',
+              }}
+            />
+            <span style={{ position: 'absolute', inset: 0, borderRadius: '9999px', background: TOKENS.blue }} />
+          </span>
+        </span>
+        c
       </span>
       <span className="font-mono mt-0.5" style={{ fontSize: 8, letterSpacing: '0.2em', color: TOKENS.blue }}>
         VISION INTELLIGENCE
@@ -328,6 +345,33 @@ function Breadcrumb({ project, customer, memberFilter, onClearMember }) {
           </span>
         </>
       )}
+    </div>
+  );
+}
+
+// Small clickable list used to jump from an aggregate count (e.g. "6 overdue")
+// to the specific task's project board — tasks here can span several
+// projects, so each row shows which project it belongs to.
+function TaskListPopover({ tasks, projects, onSelectTask }) {
+  return (
+    <div
+      className="absolute z-20 mt-1 rounded-xl overflow-hidden left-0"
+      style={{ width: 240, maxHeight: 240, overflowY: 'auto', background: TOKENS.surface2, border: `1px solid ${TOKENS.border}`, boxShadow: '0 12px 32px rgba(0,0,0,0.4)' }}
+    >
+      {tasks.map((t) => {
+        const project = projects.find((p) => p.id === t.projectId);
+        return (
+          <button
+            key={t.id}
+            onClick={() => onSelectTask(t)}
+            className="w-full text-left px-3 py-2"
+            style={{ borderBottom: `1px solid ${TOKENS.border}` }}
+          >
+            <p className="text-xs truncate" style={{ color: TOKENS.text }}>{t.title}</p>
+            <p className="text-xs truncate" style={{ color: TOKENS.textFaint }}>{project ? project.name : 'Unknown project'} · {formatDue(t.due)}</p>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -1264,6 +1308,7 @@ export default function App() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [timelineView, setTimelineView] = useState('list');
+  const [openMemberStat, setOpenMemberStat] = useState(null);
   const [showAddTask, setShowAddTask] = useState(false);
   const [loading, setLoading] = useState(true);
   const [toasts, setToasts] = useState([]);
@@ -1671,16 +1716,29 @@ export default function App() {
       const total = mine.length;
       const pct = total ? Math.round((done / total) * 100) : 0;
       const active = mine.filter((t) => t.status !== 'done');
-      const overdue = active.filter((t) => daysUntil(t.due) < 0).length;
-      const dueSoon = active.filter((t) => { const d = daysUntil(t.due); return d >= 0 && d <= 3; }).length;
+      const overdueTasks = active.filter((t) => daysUntil(t.due) < 0);
+      const dueSoonTasks = active.filter((t) => { const d = daysUntil(t.due); return d >= 0 && d <= 3; });
+      const overdue = overdueTasks.length;
+      const dueSoon = dueSoonTasks.length;
       let tone = TOKENS.teal, pulse = false;
       if (overdue > 0) { tone = TOKENS.coral; pulse = true; }
       else if (dueSoon > 0) { tone = TOKENS.amber; pulse = true; }
-      return { ...m, done, total, pct, active, overdue, dueSoon, tone, pulse };
+      return { ...m, done, total, pct, active, overdueTasks, dueSoonTasks, overdue, dueSoon, tone, pulse };
     });
   }, [team, tasks]);
 
   const totalWorkload = memberStats.reduce((sum, m) => sum + m.total, 0);
+
+  // Projects grouped by customer for the Projects tab, so they read as
+  // sub-sections instead of one flat list.
+  const projectsByCustomer = useMemo(() => {
+    const groups = CUSTOMERS
+      .map((c) => ({ customer: c, projects: projects.filter((p) => p.customerId === c.id) }))
+      .filter((g) => g.projects.length > 0);
+    const unassigned = projects.filter((p) => !CUSTOMERS.some((c) => c.id === p.customerId));
+    if (unassigned.length > 0) groups.push({ customer: null, projects: unassigned });
+    return groups;
+  }, [projects]);
 
   // Per-customer breakdown of who has worked on what — spans every project, like memberStats.
   const customerStats = useMemo(() => {
@@ -2036,14 +2094,53 @@ export default function App() {
                       </div>
                       <div className="flex items-center gap-4 text-xs mb-3 flex-wrap" style={{ color: TOKENS.textMuted }}>
                         <span className="font-mono">{m.done}/{m.total} done</span>
-                        {m.overdue > 0 && <span className="flex items-center gap-1" style={{ color: TOKENS.coral }}><AlertTriangle size={12} />{m.overdue} overdue</span>}
-                        {m.dueSoon > 0 && <span style={{ color: TOKENS.amber }}>{m.dueSoon} due soon</span>}
+                        {m.overdue > 0 && (
+                          <div className="relative">
+                            <button
+                              onClick={() => setOpenMemberStat((k) => (k === `${m.id}-overdue` ? null : `${m.id}-overdue`))}
+                              className="flex items-center gap-1"
+                              style={{ color: TOKENS.coral }}
+                            >
+                              <AlertTriangle size={12} />{m.overdue} overdue
+                            </button>
+                            {openMemberStat === `${m.id}-overdue` && (
+                              <TaskListPopover
+                                tasks={m.overdueTasks}
+                                projects={projects}
+                                onSelectTask={(t) => { jumpToTask(t); setOpenMemberStat(null); }}
+                              />
+                            )}
+                          </div>
+                        )}
+                        {m.dueSoon > 0 && (
+                          <div className="relative">
+                            <button
+                              onClick={() => setOpenMemberStat((k) => (k === `${m.id}-dueSoon` ? null : `${m.id}-dueSoon`))}
+                              style={{ color: TOKENS.amber }}
+                            >
+                              {m.dueSoon} due soon
+                            </button>
+                            {openMemberStat === `${m.id}-dueSoon` && (
+                              <TaskListPopover
+                                tasks={m.dueSoonTasks}
+                                projects={projects}
+                                onSelectTask={(t) => { jumpToTask(t); setOpenMemberStat(null); }}
+                              />
+                            )}
+                          </div>
+                        )}
                       </div>
                       <div className="flex flex-wrap gap-1.5 mb-3">
                         {m.active.slice(0, 4).map((t) => (
-                          <span key={t.id} className="text-xs px-2 py-1 rounded-full" style={{ background: TOKENS.surface2, color: TOKENS.textMuted, border: `1px solid ${TOKENS.border}` }}>
+                          <button
+                            key={t.id}
+                            onClick={() => jumpToTask(t)}
+                            title={`Jump to ${t.title}`}
+                            className="text-xs px-2 py-1 rounded-full"
+                            style={{ background: TOKENS.surface2, color: TOKENS.textMuted, border: `1px solid ${TOKENS.border}` }}
+                          >
                             {t.title.length > 28 ? t.title.slice(0, 26) + '…' : t.title}
-                          </span>
+                          </button>
                         ))}
                         {m.active.length === 0 && <span className="text-xs italic" style={{ color: TOKENS.textFaint }}>All caught up</span>}
                       </div>
@@ -2248,37 +2345,47 @@ export default function App() {
                   {projects.length === 0 && (
                     <p className="text-xs italic" style={{ color: TOKENS.textFaint }}>No projects yet — add one above to get started.</p>
                   )}
-                  <div className="space-y-2">
-                    {projects.map((p) => {
-                      const pTasks = tasks.filter((t) => t.projectId === p.id);
-                      const done = pTasks.filter((t) => t.status === 'done').length;
-                      const active = p.id === selectedProjectId;
-                      const customer = CUSTOMERS.find((c) => c.id === p.customerId);
-                      return (
-                        <div
-                          key={p.id}
-                          className="flex items-center gap-3 p-3 rounded-lg"
-                          style={{ background: active ? hexToRgba(TOKENS.blue, 0.1) : TOKENS.surface, border: `1px solid ${active ? hexToRgba(TOKENS.blue, 0.4) : TOKENS.border}` }}
-                        >
-                          {customer && <CustomerLogo customer={customer} size={30} />}
-                          <button onClick={() => { setSelectedProjectId(p.id); setActiveTab('board'); }} className="flex-1 text-left min-w-0">
-                            <p className="text-sm font-medium truncate" style={{ color: TOKENS.text }}>{p.name}</p>
-                            <p className="text-xs truncate" style={{ color: TOKENS.textFaint }}>
-                              {customer ? customer.name : 'No customer'} · {p.subtitle || 'No description'}{p.deadline ? ` · due ${p.deadline}` : ''}
-                            </p>
-                          </button>
-                          <span className="font-mono text-xs flex-shrink-0" style={{ color: TOKENS.textMuted }}>{done}/{pTasks.length}</span>
-                          {active && (
-                            <span className="text-xs px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: hexToRgba(TOKENS.blue, 0.15), color: TOKENS.blue }}>
-                              Active
-                            </span>
-                          )}
-                          <button onClick={() => deleteProject(p.id)} aria-label="Delete project" style={{ color: TOKENS.textMuted }} className="flex-shrink-0">
-                            <X size={14} />
-                          </button>
+                  <div className="space-y-5">
+                    {projectsByCustomer.map(({ customer, projects: groupProjects }) => (
+                      <div key={customer ? customer.id : 'unassigned'}>
+                        <div className="flex items-center gap-2 mb-2">
+                          {customer && <CustomerLogo customer={customer} size={20} />}
+                          <span className="text-xs font-medium uppercase tracking-wide" style={{ color: TOKENS.textMuted }}>
+                            {customer ? customer.name : 'No customer'} ({groupProjects.length})
+                          </span>
                         </div>
-                      );
-                    })}
+                        <div className="space-y-2">
+                          {groupProjects.map((p) => {
+                            const pTasks = tasks.filter((t) => t.projectId === p.id);
+                            const done = pTasks.filter((t) => t.status === 'done').length;
+                            const active = p.id === selectedProjectId;
+                            return (
+                              <div
+                                key={p.id}
+                                className="flex items-center gap-3 p-3 rounded-lg"
+                                style={{ background: active ? hexToRgba(TOKENS.blue, 0.1) : TOKENS.surface, border: `1px solid ${active ? hexToRgba(TOKENS.blue, 0.4) : TOKENS.border}` }}
+                              >
+                                <button onClick={() => { setSelectedProjectId(p.id); setActiveTab('board'); }} className="flex-1 text-left min-w-0">
+                                  <p className="text-sm font-medium truncate" style={{ color: TOKENS.text }}>{p.name}</p>
+                                  <p className="text-xs truncate" style={{ color: TOKENS.textFaint }}>
+                                    {p.subtitle || 'No description'}{p.deadline ? ` · due ${p.deadline}` : ''}
+                                  </p>
+                                </button>
+                                <span className="font-mono text-xs flex-shrink-0" style={{ color: TOKENS.textMuted }}>{done}/{pTasks.length}</span>
+                                {active && (
+                                  <span className="text-xs px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: hexToRgba(TOKENS.blue, 0.15), color: TOKENS.blue }}>
+                                    Active
+                                  </span>
+                                )}
+                                <button onClick={() => deleteProject(p.id)} aria-label="Delete project" style={{ color: TOKENS.textMuted }} className="flex-shrink-0">
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
