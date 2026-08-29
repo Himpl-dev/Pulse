@@ -1226,7 +1226,7 @@ function LogsPanel({ team, logs, onAdd, onDelete, accessToken }) {
   );
 }
 
-function WeeklyDigestPanel({ projects, tasks, team, comments, logs, accessToken }) {
+function WeeklyDigestPanel({ projects, tasks, team, comments, logs, accessToken, isManagement }) {
   const [digest, setDigest] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1302,7 +1302,7 @@ function WeeklyDigestPanel({ projects, tasks, team, comments, logs, accessToken 
         </div>
       </div>
       <p className="text-xs mb-3" style={{ color: TOKENS.textFaint }}>
-        Overdue and due-soon tasks, the last 7 days of comments and logs, and per-member load across every project — copy it into Slack or an email yourself.
+        Overdue and due-soon tasks, the last 7 days of comments{isManagement ? ' and logs' : ''}, and per-member load across every project — copy it into Slack or an email yourself.
       </p>
       {error && <p className="text-xs mb-2" style={{ color: TOKENS.coral }}>{error}</p>}
       {digest && (
@@ -1336,6 +1336,9 @@ export default function App() {
   const [openMemberStat, setOpenMemberStat] = useState(null);
   const [showAddTask, setShowAddTask] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Least-privilege default: treated as an operator until an app_roles row
+  // proves otherwise, both here and (for real) in the logs RLS policy.
+  const [isManagement, setIsManagement] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [celebration, setCelebration] = useState(null);
   const [highlightedTaskId, setHighlightedTaskId] = useState(null);
@@ -1385,6 +1388,10 @@ export default function App() {
   // True first run: nothing's been set up at all yet, vs. "projects exist but
   // none is currently selected" (e.g. after deleting the active one).
   const isFirstRun = !loading && projects.length === 0 && team.length === 0;
+  // Logs is management-only. useUrlTab stays on the full TABS list (see its
+  // call site) so a direct ?tab=logs link isn't bounced before isManagement
+  // has finished loading — this filtered list only controls what's offered.
+  const visibleTabs = TABS.filter((t) => t.id !== 'logs' || isManagement);
 
   // Cmd/Ctrl+K opens the command palette from anywhere, including while
   // focused in another input — that's the whole point of the shortcut.
@@ -1430,22 +1437,26 @@ export default function App() {
         { data: logRows, error: logErr },
         { data: teamRows, error: teamErr },
         { data: commentRows, error: commentErr },
+        { data: roleRow, error: roleErr },
       ] = await Promise.all([
         supabase.from('projects').select('*'),
         supabase.from('tasks').select('*'),
         supabase.from('logs').select('*'),
         supabase.from('team_members').select('*'),
         supabase.from('task_comments').select('*'),
+        supabase.from('app_roles').select('access_tier').eq('auth_user_id', session.user.id).maybeSingle(),
       ]);
       if (projErr) console.error('Failed to load projects', projErr);
       if (taskErr) console.error('Failed to load tasks', taskErr);
       if (logErr) console.error('Failed to load logs', logErr);
       if (teamErr) console.error('Failed to load team', teamErr);
       if (commentErr) console.error('Failed to load comments', commentErr);
+      if (roleErr) console.error('Failed to load access tier — defaulting to operator', roleErr);
       setProjects((projectRows || []).map(projectFromRow));
       setLogs((logRows || []).map(logFromRow));
       setTeam((teamRows || []).map(memberFromRow));
       setComments((commentRows || []).map(commentFromRow));
+      setIsManagement(roleRow?.access_tier === 'management');
       setLoading(false);
 
       // Auto-escalate: any open task that's gone overdue and isn't already
@@ -1862,7 +1873,7 @@ export default function App() {
         </div>
 
         <nav className="flex items-center gap-1 p-1 rounded-full w-full sm:w-auto overflow-x-auto" style={{ background: TOKENS.surface }}>
-          {TABS.map((tab) => (
+          {visibleTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -2089,7 +2100,7 @@ export default function App() {
 
             {activeTab === 'team' && (
               <div>
-                <WeeklyDigestPanel projects={projects} tasks={tasks} team={team} comments={comments} logs={logs} accessToken={session.access_token} />
+                <WeeklyDigestPanel projects={projects} tasks={tasks} team={team} comments={comments} logs={logs} accessToken={session.access_token} isManagement={isManagement} />
 
                 <div className="rounded-xl p-4 mb-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
                   <h2 className="font-display font-semibold text-sm mb-3 flex items-center gap-2">
@@ -2419,7 +2430,13 @@ export default function App() {
             )}
 
             {activeTab === 'logs' && (
-              <LogsPanel team={team} logs={logs} onAdd={addLog} onDelete={deleteLog} accessToken={session.access_token} />
+              isManagement ? (
+                <LogsPanel team={team} logs={logs} onAdd={addLog} onDelete={deleteLog} accessToken={session.access_token} />
+              ) : (
+                <div className="rounded-xl p-10 text-center" style={{ background: TOKENS.surface, border: `1px dashed ${TOKENS.border}` }}>
+                  <p className="text-sm" style={{ color: TOKENS.textMuted }}>Logs is only available to management.</p>
+                </div>
+              )
             )}
           </div>
           )}
@@ -2438,7 +2455,7 @@ export default function App() {
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
-        tabs={TABS}
+        tabs={visibleTabs}
         onSelectTab={setActiveTab}
         projects={projects}
         tasks={tasks}

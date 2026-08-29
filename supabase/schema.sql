@@ -89,3 +89,30 @@ alter table tasks add column if not exists repeat text not null default 'none';
 --    existing row (and left optional going forward) — the app renders those
 --    as a single-day marker at `due` rather than guessing a start date.
 alter table tasks add column if not exists start_date date;
+
+-- 9. Management vs. operator access tiers. A user with no row here is an
+--    operator by default (fail-safe) — only management accounts need a row.
+--    Deliberately no insert/update/delete policy for `authenticated`: role
+--    assignment only ever happens via this SQL editor (or the service role),
+--    so the anon-key client can never write its own row and self-elevate.
+--
+--    After running this, find your auth user's UUID under Authentication >
+--    Users and run:
+--      insert into app_roles (auth_user_id, access_tier) values ('<uuid>', 'management');
+--    Operator accounts need nothing beyond a login — no row required.
+create table if not exists app_roles (
+  auth_user_id uuid primary key references auth.users(id) on delete cascade,
+  access_tier text not null default 'operator' check (access_tier in ('management', 'operator'))
+);
+alter table app_roles enable row level security;
+drop policy if exists "read own role" on app_roles;
+create policy "read own role" on app_roles
+  for select using (auth.uid() = auth_user_id);
+
+-- Logs are management-only from here on. Replaces the "any authenticated
+-- user" policy from block 2 above.
+drop policy if exists "authenticated only" on logs;
+drop policy if exists "management only" on logs;
+create policy "management only" on logs
+  for all using (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'))
+  with check (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'));
