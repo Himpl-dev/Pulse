@@ -116,3 +116,22 @@ drop policy if exists "management only" on logs;
 create policy "management only" on logs
   for all using (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'))
   with check (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'));
+
+-- 10. Team roster stays visible to everyone (operators need to see who's
+--     assigned what), but editing it — add/remove/update a person — is now
+--     management-only, replacing block 4's single "any authenticated user"
+--     policy that covered reads and writes alike.
+drop policy if exists "authenticated only" on team_members;
+drop policy if exists "read team" on team_members;
+drop policy if exists "management inserts team" on team_members;
+drop policy if exists "management updates team" on team_members;
+drop policy if exists "management deletes team" on team_members;
+create policy "read team" on team_members
+  for select using (auth.role() = 'authenticated');
+create policy "management inserts team" on team_members
+  for insert with check (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'));
+create policy "management updates team" on team_members
+  for update using (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'))
+  with check (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'));
+create policy "management deletes team" on team_members
+  for delete using (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'));

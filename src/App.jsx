@@ -2102,12 +2102,14 @@ export default function App() {
               <div>
                 <WeeklyDigestPanel projects={projects} tasks={tasks} team={team} comments={comments} logs={logs} accessToken={session.access_token} isManagement={isManagement} />
 
-                <div className="rounded-xl p-4 mb-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
-                  <h2 className="font-display font-semibold text-sm mb-3 flex items-center gap-2">
-                    <Users size={15} /> Add member
-                  </h2>
-                  <AddMemberForm onAdd={addMember} />
-                </div>
+                {isManagement && (
+                  <div className="rounded-xl p-4 mb-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
+                    <h2 className="font-display font-semibold text-sm mb-3 flex items-center gap-2">
+                      <Users size={15} /> Add member
+                    </h2>
+                    <AddMemberForm onAdd={addMember} />
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
                   {memberStats.map((m, i) => (
@@ -2126,9 +2128,11 @@ export default function App() {
                         <RadialProgress pct={m.pct} size={44} stroke={4} color={m.tone} trackColor={themeHex.border}>
                           <span className="font-mono" style={{ fontSize: 10, color: TOKENS.text }}><StatNumber value={m.pct} /></span>
                         </RadialProgress>
-                        <button onClick={() => deleteMember(m.id)} aria-label={`Remove ${m.name}`} title="Remove member" style={{ color: TOKENS.textMuted }} className="flex-shrink-0">
-                          <Trash2 size={14} />
-                        </button>
+                        {isManagement && (
+                          <button onClick={() => deleteMember(m.id)} aria-label={`Remove ${m.name}`} title="Remove member" style={{ color: TOKENS.textMuted }} className="flex-shrink-0">
+                            <Trash2 size={14} />
+                          </button>
+                        )}
                       </div>
                       <div className="flex items-center gap-4 text-xs mb-3 flex-wrap" style={{ color: TOKENS.textMuted }}>
                         <span className="font-mono">{m.done}/{m.total} done</span>
