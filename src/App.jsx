@@ -319,19 +319,42 @@ function LoadingMark({ size = 64 }) {
   );
 }
 
-function LoginScreen({ onSignIn }) {
+function LoginScreen({ onSignIn, onSignUp }) {
+  const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   async function submit(e) {
     e.preventDefault();
     setError('');
+    setInfo('');
     setSubmitting(true);
-    const { error: signInError } = await onSignIn(email.trim(), password);
-    setSubmitting(false);
-    if (signInError) setError(signInError.message || 'Sign-in failed');
+    if (mode === 'signin') {
+      const { error: signInError } = await onSignIn(email.trim(), password);
+      setSubmitting(false);
+      if (signInError) setError(signInError.message || 'Sign-in failed');
+    } else {
+      const { error: signUpError, needsConfirmation } = await onSignUp(email.trim(), password);
+      setSubmitting(false);
+      if (signUpError) {
+        setError(signUpError.message || 'Sign-up failed');
+      } else if (needsConfirmation) {
+        setInfo('Check your email to confirm your account, then sign in.');
+        setMode('signin');
+        setPassword('');
+      }
+      // If no confirmation is required, the auth-state listener elsewhere in
+      // the app picks up the new session automatically — nothing else to do.
+    }
+  }
+
+  function toggleMode() {
+    setMode((m) => (m === 'signin' ? 'signup' : 'signin'));
+    setError('');
+    setInfo('');
   }
 
   return (
@@ -340,15 +363,21 @@ function LoginScreen({ onSignIn }) {
         <div className="mb-5">
           <Logo />
         </div>
-        <h1 className="font-display font-semibold text-lg mb-1">Sign in</h1>
-        <p className="text-xs mb-5" style={{ color: TOKENS.textFaint }}>Private dashboard — sign in to continue.</p>
+        <h1 className="font-display font-semibold text-lg mb-1">{mode === 'signin' ? 'Sign in' : 'Create an account'}</h1>
+        <p className="text-xs mb-5" style={{ color: TOKENS.textFaint }}>
+          {mode === 'signin' ? 'Sign in to continue.' : 'New accounts start with operator-level access.'}
+        </p>
         <div className="flex flex-col gap-2 mb-3">
           <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="rounded-lg px-3 py-2 text-sm" style={inputStyle} />
-          <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" className="rounded-lg px-3 py-2 text-sm" style={inputStyle} />
+          <input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" className="rounded-lg px-3 py-2 text-sm" style={inputStyle} />
         </div>
+        {info && <p className="text-xs mb-3" style={{ color: TOKENS.teal }}>{info}</p>}
         {error && <p className="text-xs mb-3" style={{ color: TOKENS.coral }}>{error}</p>}
         <button type="submit" disabled={submitting} className="w-full px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-60" style={{ background: TOKENS.blue, color: '#0B0D11' }}>
-          {submitting ? 'Signing in…' : 'Sign in'}
+          {submitting ? (mode === 'signin' ? 'Signing in…' : 'Creating account…') : (mode === 'signin' ? 'Sign in' : 'Sign up')}
+        </button>
+        <button type="button" onClick={toggleMode} className="w-full text-xs mt-3 text-center" style={{ color: TOKENS.textMuted }}>
+          {mode === 'signin' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
         </button>
       </form>
     </div>
@@ -1438,6 +1467,13 @@ export default function App() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error };
   }
+  async function signUp(email, password) {
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    // Supabase returns a user with no session when email confirmation is
+    // required — surface that so LoginScreen can prompt for it rather than
+    // silently doing nothing.
+    return { error, needsConfirmation: !error && !data.session };
+  }
   async function signOut() {
     await supabase.auth.signOut();
   }
@@ -1842,7 +1878,7 @@ export default function App() {
   }
 
   if (!session) {
-    return <LoginScreen onSignIn={signIn} />;
+    return <LoginScreen onSignIn={signIn} onSignUp={signUp} />;
   }
 
   return (
