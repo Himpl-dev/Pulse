@@ -4,7 +4,7 @@ import {
   Users, Clock, AlertTriangle, Calendar, TrendingUp, PieChart as PieChartIcon,
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
   NotebookPen, LogOut, Copy, Check, Sparkles, Loader2, Search, MessageSquare, Download, Repeat,
-  Sun, Moon,
+  Sun, Moon, ShieldCheck,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -14,6 +14,7 @@ import { useTheme, THEME_HEX, TOKENS, hexToRgba } from './theme';
 import { useUrlTab } from './hooks/useUrlTab';
 import { useCountUp } from './hooks/useCountUp';
 import { CommandPalette } from './components/CommandPalette';
+import { AdminPanel } from './components/AdminPanel';
 import { OnboardingEmptyState } from './components/OnboardingEmptyState';
 import { GanttChart } from './components/GanttChart';
 
@@ -70,7 +71,13 @@ const TABS = [
   { id: 'customers', label: 'Customers', icon: Building2 },
   { id: 'projects', label: 'Projects', icon: FolderKanban },
   { id: 'logs', label: 'Logs', icon: NotebookPen },
+  { id: 'admin', label: 'Admin', icon: ShieldCheck },
 ];
+
+// Tabs only management can see — filtered out of nav/palette, and their
+// content is gated a second time at the render site (defense in depth; the
+// real security boundary is Supabase RLS, not this list).
+const MANAGEMENT_ONLY_TABS = new Set(['logs', 'admin']);
 
 const LOG_TAGS = [
   { id: 'progress', label: 'Progress', color: TOKENS.teal },
@@ -397,6 +404,14 @@ function TaskListPopover({ tasks, projects, onSelectTask }) {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function ManagementOnlyNotice({ feature }) {
+  return (
+    <div className="rounded-xl p-10 text-center" style={{ background: TOKENS.surface, border: `1px dashed ${TOKENS.border}` }}>
+      <p className="text-sm" style={{ color: TOKENS.textMuted }}>{feature} is only available to management.</p>
     </div>
   );
 }
@@ -1388,10 +1403,11 @@ export default function App() {
   // True first run: nothing's been set up at all yet, vs. "projects exist but
   // none is currently selected" (e.g. after deleting the active one).
   const isFirstRun = !loading && projects.length === 0 && team.length === 0;
-  // Logs is management-only. useUrlTab stays on the full TABS list (see its
-  // call site) so a direct ?tab=logs link isn't bounced before isManagement
-  // has finished loading — this filtered list only controls what's offered.
-  const visibleTabs = TABS.filter((t) => t.id !== 'logs' || isManagement);
+  // Logs/Admin are management-only. useUrlTab stays on the full TABS list
+  // (see its call site) so a direct ?tab=logs link isn't bounced before
+  // isManagement has finished loading — this filtered list only controls
+  // what's offered in nav/palette.
+  const visibleTabs = TABS.filter((t) => !MANAGEMENT_ONLY_TABS.has(t.id) || isManagement);
 
   // Cmd/Ctrl+K opens the command palette from anywhere, including while
   // focused in another input — that's the whole point of the shortcut.
@@ -2437,9 +2453,15 @@ export default function App() {
               isManagement ? (
                 <LogsPanel team={team} logs={logs} onAdd={addLog} onDelete={deleteLog} accessToken={session.access_token} />
               ) : (
-                <div className="rounded-xl p-10 text-center" style={{ background: TOKENS.surface, border: `1px dashed ${TOKENS.border}` }}>
-                  <p className="text-sm" style={{ color: TOKENS.textMuted }}>Logs is only available to management.</p>
-                </div>
+                <ManagementOnlyNotice feature="Logs" />
+              )
+            )}
+
+            {activeTab === 'admin' && (
+              isManagement ? (
+                <AdminPanel accessToken={session.access_token} />
+              ) : (
+                <ManagementOnlyNotice feature="Admin" />
               )
             )}
           </div>
