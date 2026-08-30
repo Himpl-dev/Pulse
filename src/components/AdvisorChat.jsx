@@ -8,7 +8,15 @@ import { supabase } from '../supabaseClient';
 // bubble thread are identical across all of them; only the table/endpoint,
 // header copy, and (optionally) extra content after a reply (e.g. PM's
 // task-proposal cards) differ per agent.
-export function AdvisorChat({ table, endpoint, accessToken, icon: Icon, iconColor, title, description, emptyHint, onResponse, extra }) {
+export function AdvisorChat({
+  table, endpoint, accessToken, icon: Icon, iconColor, title, description, emptyHint, onResponse, extra,
+  // Optional, purely additive — every existing consumer omits these and gets
+  // identical behavior to before. buildRequestBody lets a caller (e.g. the
+  // Engineer advisor) upload a file first and merge extra fields into the
+  // POST body; formAccessory renders inside the input row (e.g. an attach
+  // button); renderAttachment renders extra content in a message bubble.
+  buildRequestBody, formAccessory, renderAttachment,
+}) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState('');
@@ -51,10 +59,11 @@ export function AdvisorChat({ table, endpoint, accessToken, icon: Icon, iconColo
     const tempId = `temp-${Date.now()}`;
     setMessages((prev) => [...prev, { id: tempId, role: 'user', content: prompt, created_at: new Date().toISOString() }]);
     try {
+      const body = buildRequestBody ? await buildRequestBody(prompt) : { prompt };
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to get a response');
@@ -94,6 +103,7 @@ export function AdvisorChat({ table, endpoint, accessToken, icon: Icon, iconColo
                   border: `1px solid ${m.role === 'user' ? hexToRgba(TOKENS.blue, 0.35) : TOKENS.border}`,
                 }}
               >
+                {renderAttachment?.(m)}
                 {m.content}
               </div>
             </div>
@@ -123,6 +133,7 @@ export function AdvisorChat({ table, endpoint, accessToken, icon: Icon, iconColo
           className="flex-1 rounded-lg px-3 py-2 text-sm resize-none disabled:opacity-60"
           style={{ background: TOKENS.surface2, border: `1px solid ${TOKENS.border}`, color: TOKENS.text }}
         />
+        {formAccessory}
         <button
           type="submit"
           disabled={sending || !input.trim()}

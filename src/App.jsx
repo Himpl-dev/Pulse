@@ -4,7 +4,7 @@ import {
   Users, Clock, AlertTriangle, Calendar, TrendingUp, PieChart as PieChartIcon,
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
   NotebookPen, LogOut, Sparkles, Loader2, Search, MessageSquare, Download, Repeat,
-  Sun, Moon, ShieldCheck, LifeBuoy, Compass, Handshake, FileText,
+  Sun, Moon, ShieldCheck, LifeBuoy, Compass, Handshake, FileText, Wrench,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -21,6 +21,7 @@ import { HRPanel } from './components/HRPanel';
 import { PMPanel } from './components/PMPanel';
 import { SalesPanel } from './components/SalesPanel';
 import { DocumentationPanel } from './components/DocumentationPanel';
+import { EngineerPanel } from './components/EngineerPanel';
 import { CopyButton } from './components/AiOutput';
 import { renderMarkdown, downloadTextFile } from './markdown';
 
@@ -80,6 +81,7 @@ const TABS = [
   { id: 'pm', label: 'PM', icon: Compass },
   { id: 'sales', label: 'Sales', icon: Handshake },
   { id: 'docs', label: 'Docs', icon: FileText },
+  { id: 'engineer', label: 'Engineer', icon: Wrench },
   { id: 'logs', label: 'Logs', icon: NotebookPen },
   { id: 'admin', label: 'Admin', icon: ShieldCheck },
 ];
@@ -2411,6 +2413,10 @@ export default function App() {
 
             {activeTab === 'docs' && (
               <DocumentationPanel accessToken={session.access_token} projects={projects} />
+            )}
+
+            {activeTab === 'engineer' && (
+              <EngineerPanel accessToken={session.access_token} userId={session.user.id} />
             )}
 
             {activeTab === 'logs' && (

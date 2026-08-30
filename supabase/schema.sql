@@ -181,3 +181,33 @@ alter table sales_messages enable row level security;
 drop policy if exists "own messages only" on sales_messages;
 create policy "own messages only" on sales_messages
   for all using (auth.uid() = auth_user_id) with check (auth.uid() = auth_user_id);
+
+-- 14. Engineer/Technician advisor: private per-user chat (same shape as
+-- hr_messages/pm_messages/sales_messages) plus an optional attachment on a
+-- user message, pointing at a file in the new eng_drawings storage bucket.
+create table if not exists eng_messages (
+  id uuid primary key,
+  auth_user_id uuid not null references auth.users(id) on delete cascade,
+  role text not null check (role in ('user', 'assistant')),
+  content text not null,
+  attachment_path text,
+  attachment_name text,
+  created_at timestamptz not null default now()
+);
+alter table eng_messages enable row level security;
+drop policy if exists "own messages only" on eng_messages;
+create policy "own messages only" on eng_messages
+  for all using (auth.uid() = auth_user_id) with check (auth.uid() = auth_user_id);
+
+-- Private storage bucket for uploaded technical drawings/photos, one folder
+-- per user ("<auth_user_id>/<filename>") so RLS scopes access the same way
+-- as everything else here — nobody sees another user's uploads, management
+-- included.
+insert into storage.buckets (id, name, public)
+values ('eng_drawings', 'eng_drawings', false)
+on conflict (id) do nothing;
+
+drop policy if exists "own eng_drawings only" on storage.objects;
+create policy "own eng_drawings only" on storage.objects
+  for all using (bucket_id = 'eng_drawings' and (storage.foldername(name))[1] = auth.uid()::text)
+  with check (bucket_id = 'eng_drawings' and (storage.foldername(name))[1] = auth.uid()::text);
