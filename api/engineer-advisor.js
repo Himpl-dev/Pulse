@@ -61,7 +61,7 @@ export default async function handler(req, res) {
       .select('role, content, attachment_name')
       .eq('auth_user_id', caller.id)
       .order('created_at', { ascending: true })
-      .limit(20);
+      .limit(12);
 
     const newMessageId = crypto.randomUUID();
     const { error: insertUserErr } = await db.from('eng_messages').insert({
@@ -117,7 +117,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-5',
-        max_tokens: 4096,
+        max_tokens: 2048,
         system: SYSTEM_PROMPT,
         messages,
       }),

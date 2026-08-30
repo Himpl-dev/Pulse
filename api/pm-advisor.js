@@ -84,7 +84,7 @@ export default async function handler(req, res) {
       db.from('projects').select('id, name, subtitle, deadline'),
       db.from('tasks').select('id, title, status, due, priority, project_id, assignees'),
       db.from('team_members').select('id, name, skills'),
-      db.from('pm_messages').select('role, content').eq('auth_user_id', caller.id).order('created_at', { ascending: true }).limit(20),
+      db.from('pm_messages').select('role, content').eq('auth_user_id', caller.id).order('created_at', { ascending: true }).limit(12),
     ]);
 
     // Task-proposal capability is management-only — gated here by only
@@ -123,7 +123,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-5',
-        max_tokens: 4096,
+        max_tokens: 2048,
         system: `${systemPrompt}\n\n${contextBlock}`,
         ...(isManagement ? { tools: [PROPOSE_TASK_TOOL] } : {}),
         messages,

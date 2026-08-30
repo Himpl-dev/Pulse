@@ -67,7 +67,7 @@ export default async function handler(req, res) {
       db.from('tasks').select('id, status, due, assignees'),
       db.from('team_members').select('id, name'),
       db.from('logs').select('note, tag, created_at').order('created_at', { ascending: false }).limit(40),
-      db.from('hr_messages').select('role, content').eq('auth_user_id', caller.id).order('created_at', { ascending: true }).limit(20),
+      db.from('hr_messages').select('role, content').eq('auth_user_id', caller.id).order('created_at', { ascending: true }).limit(12),
     ]);
 
     const isManagement = roleRow?.access_tier === 'management';
@@ -104,7 +104,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-5',
-        max_tokens: 4096,
+        max_tokens: 2048,
         system: `${systemPrompt}\n\n${contextBlock}`,
         messages,
       }),

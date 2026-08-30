@@ -70,7 +70,7 @@ export default async function handler(req, res) {
     const [{ data: projects }, { data: tasks }, { data: history }] = await Promise.all([
       db.from('projects').select('id, name, subtitle, deadline, customer_id'),
       db.from('tasks').select('id, status, project_id'),
-      db.from('sales_messages').select('role, content').eq('auth_user_id', caller.id).order('created_at', { ascending: true }).limit(20),
+      db.from('sales_messages').select('role, content').eq('auth_user_id', caller.id).order('created_at', { ascending: true }).limit(12),
     ]);
 
     const contextBlock = `Customers and their projects:\n${customerContext(CUSTOMERS, projects || [], tasks || [])}`;
@@ -101,7 +101,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-5',
-        max_tokens: 4096,
+        max_tokens: 2048,
         system: `${SYSTEM_PROMPT}\n\n${contextBlock}`,
         messages,
       }),

@@ -65,7 +65,15 @@ export function AdvisorChat({
         headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        // A non-JSON body means the platform itself killed the request
+        // (e.g. a serverless timeout) before our own code could respond —
+        // give a clear message instead of a raw JSON-parse error.
+        throw new Error(res.status === 504 || !res.ok ? 'The advisor took too long to respond — try again, maybe with a shorter question.' : 'Failed to get a response');
+      }
       if (!res.ok) throw new Error(data.error || 'Failed to get a response');
       onResponse?.(data);
       await loadMessages();
