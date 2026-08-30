@@ -10,22 +10,17 @@ import { createClient } from '@supabase/supabase-js';
 
 export const config = { maxDuration: 30 };
 
-const SYSTEM_PROMPT = `You are a troubleshooting advisor for Bytronic field engineers and technicians working on machine-vision installations. Help them think through fault diagnosis and problem solving step by step — ask a clarifying question if you genuinely need one, but default to giving concrete next diagnostic steps. When a drawing, photo, or PDF is attached, read it carefully and reference specific details from it (labels, connections, part numbers visible) rather than speaking generically. Also help them judge when a problem is beyond what should be handled solo on site and needs escalating — say so plainly when that's the case, and suggest what to capture (photos, error codes, readings) before escalating.
+const SYSTEM_PROMPT = `You are a troubleshooting advisor for Bytronic field engineers and technicians working on machine-vision installations. Help them think through fault diagnosis and problem solving step by step — ask a clarifying question if you genuinely need one, but default to giving concrete next diagnostic steps. When a drawing or photo is attached, read it carefully and reference specific details from it (labels, connections, part numbers visible) rather than speaking generically. Also help them judge when a problem is beyond what should be handled solo on site and needs escalating — say so plainly when that's the case, and suggest what to capture (photos, error codes, readings) before escalating.
 
-This runs under a strict response-time limit, especially when a document is attached — keep answers focused: lead with the 3-5 most useful, concrete points rather than an exhaustive breakdown of everything visible. It's fine to say there's more detail available and let them ask a follow-up, rather than trying to cover everything in one reply.`;
+This runs under a strict response-time limit — keep answers focused: lead with the 3-5 most useful, concrete points rather than an exhaustive breakdown of everything visible. It's fine to say there's more detail available and let them ask a follow-up, rather than trying to cover everything in one reply.`;
 
 const MEDIA_TYPES = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif',
-  pdf: 'application/pdf',
 };
 
-// PDFs go in as a "document" content block, everything else as "image" —
-// same base64 source shape either way.
-function attachmentKindFor(filename) {
+function mediaTypeFor(filename) {
   const ext = (filename || '').split('.').pop().toLowerCase();
-  const mediaType = MEDIA_TYPES[ext];
-  if (!mediaType) return null;
-  return { mediaType, blockType: ext === 'pdf' ? 'document' : 'image' };
+  return MEDIA_TYPES[ext] || null;
 }
 
 export default async function handler(req, res) {
@@ -80,24 +75,24 @@ export default async function handler(req, res) {
     }
 
     // Replay history as text only (including a note when a past message had
-    // an attachment) — re-sending old file bytes every turn isn't worth the
+    // an attachment) — re-sending old image bytes every turn isn't worth the
     // token/latency cost for a chat that can run to many turns.
     const pastMessages = (history || []).map((m) => ({
       role: m.role,
-      content: m.attachment_name ? `${m.content}\n[Attached file: ${m.attachment_name}]` : m.content,
+      content: m.attachment_name ? `${m.content}\n[Attached image: ${m.attachment_name}]` : m.content,
     }));
 
     let newUserContent = prompt.trim();
     if (attachmentPath) {
-      const kind = attachmentKindFor(attachmentName);
-      if (kind) {
+      const mediaType = mediaTypeFor(attachmentName);
+      if (mediaType) {
         const { data: fileBlob, error: downloadErr } = await db.storage.from('eng_drawings').download(attachmentPath);
         if (downloadErr) {
           console.error('Failed to download attachment', downloadErr);
         } else {
           const base64 = Buffer.from(await fileBlob.arrayBuffer()).toString('base64');
           newUserContent = [
-            { type: kind.blockType, source: { type: 'base64', media_type: kind.mediaType, data: base64 } },
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
             { type: 'text', text: prompt.trim() },
           ];
         }
@@ -112,10 +107,6 @@ export default async function handler(req, res) {
         'content-type': 'application/json',
         'x-api-key': process.env.ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
-        // Harmless if PDF support has since graduated to general
-        // availability — an unrecognized beta flag is just ignored — but
-        // protects against it still being gated.
-        'anthropic-beta': 'pdfs-2024-09-25',
       },
       body: JSON.stringify({
         model: 'claude-sonnet-5',
