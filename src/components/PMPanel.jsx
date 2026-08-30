@@ -156,9 +156,10 @@ export function PMPanel({ accessToken, onCreateTask }) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(e); } }}
-          placeholder="Ask something…"
+          placeholder={sending ? 'Waiting for a reply — this can take up to 30s…' : 'Ask something…'}
+          disabled={sending}
           rows={1}
-          className="flex-1 rounded-lg px-3 py-2 text-sm resize-none"
+          className="flex-1 rounded-lg px-3 py-2 text-sm resize-none disabled:opacity-60"
           style={{ background: TOKENS.surface2, border: `1px solid ${TOKENS.border}`, color: TOKENS.text }}
         />
         <button

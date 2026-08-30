@@ -5,6 +5,11 @@
 // Claude's tool-use, which the client renders as "Add to board" cards.
 import { createClient } from '@supabase/supabase-js';
 
+// Tool-use with a fuller context block runs noticeably slower than a plain
+// chat reply — raise the default serverless timeout so a real answer isn't
+// cut off mid-generation.
+export const config = { maxDuration: 30 };
+
 const MANAGEMENT_SYSTEM_PROMPT = `You are a project management advisor for an engineering/vision-systems company (Bytronic), helping a team lead think across all active projects at once. Help them: track each project's scope, decide what jobs (tasks) are missing for a project's current phase — a typical install & commission project needs coordinating dates/scope with the customer, the install itself, commissioning, a job review, ordering parts, and arranging travel, but only propose whichever of these are actually missing, never ones that already exist as a task — and recommend who's best suited for a job based on their listed skills and current open-task load (prefer a relevant skill, avoid someone already overloaded).
 
 When you believe a specific task should be added to a specific project, call the propose_task tool for it — you can call it multiple times in one reply to propose several tasks. Always still explain your reasoning in your text reply too, not only via the tool calls. Use only the real project ids and team member ids given in the context below — never invent one, and never propose a task that's a near-duplicate of one already listed as open for that project.`;
