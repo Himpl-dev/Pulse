@@ -4,7 +4,7 @@ import {
   Users, Clock, AlertTriangle, Calendar, TrendingUp, PieChart as PieChartIcon,
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
   NotebookPen, LogOut, Copy, Check, Sparkles, Loader2, Search, MessageSquare, Download, Repeat,
-  Sun, Moon, ShieldCheck, LifeBuoy,
+  Sun, Moon, ShieldCheck, LifeBuoy, Compass,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -18,6 +18,7 @@ import { AdminPanel } from './components/AdminPanel';
 import { OnboardingEmptyState } from './components/OnboardingEmptyState';
 import { GanttChart } from './components/GanttChart';
 import { HRPanel } from './components/HRPanel';
+import { PMPanel } from './components/PMPanel';
 
 /* ---------------------------------- tokens --------------------------------- */
 
@@ -72,6 +73,7 @@ const TABS = [
   { id: 'customers', label: 'Customers', icon: Building2 },
   { id: 'projects', label: 'Projects', icon: FolderKanban },
   { id: 'hr', label: 'HR', icon: LifeBuoy },
+  { id: 'pm', label: 'PM', icon: Compass },
   { id: 'logs', label: 'Logs', icon: NotebookPen },
   { id: 'admin', label: 'Admin', icon: ShieldCheck },
 ];
@@ -1578,9 +1580,13 @@ export default function App() {
     }
   }
 
-  async function addTask({ title, assignees, priority, due, repeat, startDate }) {
+  // projectId defaults to whatever's currently selected (the Board's "Add
+  // task" form relies on that default) but can be overridden — e.g. the PM
+  // advisor proposes tasks for whichever project it's talking about, which
+  // isn't necessarily the one currently selected.
+  async function addTask({ title, assignees, priority, due, repeat, startDate, projectId = selectedProjectId }) {
     const id = `t${tasks.length}-${Math.round(Math.random() * 1e6)}`;
-    const task = { id, title, assignees, priority, due, status: 'backlog', projectId: selectedProjectId, repeat: repeat || 'none', startDate: startDate || null };
+    const task = { id, title, assignees, priority, due, status: 'backlog', projectId, repeat: repeat || 'none', startDate: startDate || null };
     setTasks((prev) => [...prev, task]);
     const { error } = await supabase.from('tasks').insert(taskToRow(task));
     if (error) {
@@ -2489,6 +2495,19 @@ export default function App() {
 
             {activeTab === 'hr' && (
               <HRPanel accessToken={session.access_token} />
+            )}
+
+            {activeTab === 'pm' && (
+              <PMPanel
+                accessToken={session.access_token}
+                onCreateTask={(p) => addTask({
+                  title: p.title,
+                  assignees: p.assigneeId ? [p.assigneeId] : [],
+                  priority: p.priority,
+                  due: p.due,
+                  projectId: p.projectId,
+                })}
+              />
             )}
 
             {activeTab === 'logs' && (

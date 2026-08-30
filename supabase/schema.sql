@@ -152,3 +152,18 @@ alter table hr_messages enable row level security;
 drop policy if exists "own messages only" on hr_messages;
 create policy "own messages only" on hr_messages
   for all using (auth.uid() = auth_user_id) with check (auth.uid() = auth_user_id);
+
+-- 12. Project Manager advisor conversations. Same private-per-user shape as
+-- hr_messages (block 11) — not something the user asked to make different,
+-- and it's the safer default for a new chat feature until asked otherwise.
+create table if not exists pm_messages (
+  id uuid primary key,
+  auth_user_id uuid not null references auth.users(id) on delete cascade,
+  role text not null check (role in ('user', 'assistant')),
+  content text not null,
+  created_at timestamptz not null default now()
+);
+alter table pm_messages enable row level security;
+drop policy if exists "own messages only" on pm_messages;
+create policy "own messages only" on pm_messages
+  for all using (auth.uid() = auth_user_id) with check (auth.uid() = auth_user_id);
