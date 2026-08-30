@@ -5,9 +5,11 @@
 // Claude's tool-use, which the client renders as "Add to board" cards.
 import { createClient } from '@supabase/supabase-js';
 
-const SYSTEM_PROMPT = `You are a project management advisor for an engineering/vision-systems company (Bytronic), helping a team lead or operator think across all active projects at once. Help them: track each project's scope, decide what jobs (tasks) are missing for a project's current phase — a typical install & commission project needs coordinating dates/scope with the customer, the install itself, commissioning, a job review, ordering parts, and arranging travel, but only propose whichever of these are actually missing, never ones that already exist as a task — and recommend who's best suited for a job based on their listed skills and current open-task load (prefer a relevant skill, avoid someone already overloaded).
+const MANAGEMENT_SYSTEM_PROMPT = `You are a project management advisor for an engineering/vision-systems company (Bytronic), helping a team lead think across all active projects at once. Help them: track each project's scope, decide what jobs (tasks) are missing for a project's current phase — a typical install & commission project needs coordinating dates/scope with the customer, the install itself, commissioning, a job review, ordering parts, and arranging travel, but only propose whichever of these are actually missing, never ones that already exist as a task — and recommend who's best suited for a job based on their listed skills and current open-task load (prefer a relevant skill, avoid someone already overloaded).
 
 When you believe a specific task should be added to a specific project, call the propose_task tool for it — you can call it multiple times in one reply to propose several tasks. Always still explain your reasoning in your text reply too, not only via the tool calls. Use only the real project ids and team member ids given in the context below — never invent one, and never propose a task that's a near-duplicate of one already listed as open for that project.`;
+
+const OPERATOR_SYSTEM_PROMPT = `You are a project management advisor for an engineering/vision-systems company (Bytronic), helping an operator understand the projects they're working on. You can discuss project scope, specification, status, what's outstanding, and general staffing/skills questions, grounded in the data below. You do NOT have the ability to create or propose tasks in this conversation — that's limited to management. If asked to add or change a task, say so plainly and suggest they raise it with their team lead, rather than implying you've done it.`;
 
 const PROPOSE_TASK_TOOL = {
   name: 'propose_task',
@@ -72,12 +74,20 @@ export default async function handler(req, res) {
   });
 
   try {
-    const [{ data: projects }, { data: rawTasks }, { data: team }, { data: history }] = await Promise.all([
+    const [{ data: roleRow }, { data: projects }, { data: rawTasks }, { data: team }, { data: history }] = await Promise.all([
+      db.from('app_roles').select('access_tier').eq('auth_user_id', caller.id).maybeSingle(),
       db.from('projects').select('id, name, subtitle, deadline'),
       db.from('tasks').select('id, title, status, due, priority, project_id, assignees'),
       db.from('team_members').select('id, name, skills'),
       db.from('pm_messages').select('role, content').eq('auth_user_id', caller.id).order('created_at', { ascending: true }).limit(20),
     ]);
+
+    // Task-proposal capability is management-only — gated here by only
+    // offering the tool at all, not by trusting a client-side flag. An
+    // operator's request to Claude simply never includes propose_task, so
+    // there's no path for the model to emit one for them.
+    const isManagement = roleRow?.access_tier === 'management';
+    const systemPrompt = isManagement ? MANAGEMENT_SYSTEM_PROMPT : OPERATOR_SYSTEM_PROMPT;
 
     const tasks = (rawTasks || []).map((t) => ({ ...t, projectId: t.project_id }));
     const contextBlock = `Today's date: ${new Date().toISOString().slice(0, 10)}\n\nProjects:\n${projectContext(projects || [], tasks)}\n\nTeam:\n${teamContext(team || [], tasks)}`;
@@ -109,8 +119,8 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: 'claude-sonnet-5',
         max_tokens: 4096,
-        system: `${SYSTEM_PROMPT}\n\n${contextBlock}`,
-        tools: [PROPOSE_TASK_TOOL],
+        system: `${systemPrompt}\n\n${contextBlock}`,
+        ...(isManagement ? { tools: [PROPOSE_TASK_TOOL] } : {}),
         messages,
       }),
     });

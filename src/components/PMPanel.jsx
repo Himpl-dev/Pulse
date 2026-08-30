@@ -82,7 +82,7 @@ export function PMPanel({ accessToken, onCreateTask }) {
         <Compass size={15} style={{ color: TOKENS.teal }} />
         <div>
           <h2 className="font-display font-semibold text-sm">Project Manager</h2>
-          <p className="text-xs" style={{ color: TOKENS.textFaint }}>Cross-project advice, staffing suggestions, and task proposals you can add with one click.</p>
+          <p className="text-xs" style={{ color: TOKENS.textFaint }}>Cross-project advice on scope, status, and staffing — management can also add proposed tasks with one click.</p>
         </div>
       </div>
 
