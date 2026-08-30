@@ -3,8 +3,8 @@ import { supabase } from './supabaseClient';
 import {
   Users, Clock, AlertTriangle, Calendar, TrendingUp, PieChart as PieChartIcon,
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
-  NotebookPen, LogOut, Copy, Check, Sparkles, Loader2, Search, MessageSquare, Download, Repeat,
-  Sun, Moon, ShieldCheck, LifeBuoy, Compass, Handshake,
+  NotebookPen, LogOut, Sparkles, Loader2, Search, MessageSquare, Download, Repeat,
+  Sun, Moon, ShieldCheck, LifeBuoy, Compass, Handshake, FileText,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -20,6 +20,9 @@ import { GanttChart } from './components/GanttChart';
 import { HRPanel } from './components/HRPanel';
 import { PMPanel } from './components/PMPanel';
 import { SalesPanel } from './components/SalesPanel';
+import { DocumentationPanel } from './components/DocumentationPanel';
+import { CopyButton } from './components/AiOutput';
+import { renderMarkdown, downloadTextFile } from './markdown';
 
 /* ---------------------------------- tokens --------------------------------- */
 
@@ -76,6 +79,7 @@ const TABS = [
   { id: 'hr', label: 'HR', icon: LifeBuoy },
   { id: 'pm', label: 'PM', icon: Compass },
   { id: 'sales', label: 'Sales', icon: Handshake },
+  { id: 'docs', label: 'Docs', icon: FileText },
   { id: 'logs', label: 'Logs', icon: NotebookPen },
   { id: 'admin', label: 'Admin', icon: ShieldCheck },
 ];
@@ -153,18 +157,6 @@ function buildICS(events) {
   });
   lines.push('END:VCALENDAR');
   return lines.join('\r\n');
-}
-
-function downloadTextFile(filename, content, mimeType) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 }
 
 // Supabase tables use snake_case columns; app state uses camelCase.
@@ -996,32 +988,6 @@ function GlobalSearch({ projects, tasks, onSelectProject, onSelectTask }) {
   );
 }
 
-function CopyButton({ text, label = 'Copy' }) {
-  const [copied, setCopied] = useState(false);
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch (err) {
-      console.error('Copy failed', err);
-    }
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={copy}
-      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium flex-shrink-0"
-      style={{ background: TOKENS.surface2, color: TOKENS.textMuted, border: `1px solid ${TOKENS.border}` }}
-    >
-      {copied ? <Check size={13} style={{ color: TOKENS.teal }} /> : <Copy size={13} />}
-      {(copied || label) && (copied ? 'Copied' : label)}
-    </button>
-  );
-}
-
 function AddLogForm({ onAdd }) {
   const [note, setNote] = useState('');
   const [tag, setTag] = useState('progress');
@@ -1063,79 +1029,6 @@ function formatLogsAsText(personName, entries) {
   if (entries.length === 0) return `${personName} — no log entries yet.`;
   const lines = entries.map((e) => `[${formatLogTimestamp(e.createdAt)}]${e.tag ? ` (${LOG_TAGS.find((t) => t.id === e.tag)?.label || e.tag})` : ''} ${e.note}`);
   return `${personName} — log entries\n\n${lines.join('\n')}`;
-}
-
-// Lightweight, dependency-free renderer for the small subset of markdown the
-// AI features (digest/summarize) actually produce: #/##/### headings,
-// **bold**, and (possibly nested) "- " bullet lists.
-function renderMarkdownInline(text, keyPrefix) {
-  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-    part.startsWith('**') && part.endsWith('**')
-      ? <strong key={`${keyPrefix}-${i}`}>{part.slice(2, -2)}</strong>
-      : <React.Fragment key={`${keyPrefix}-${i}`}>{part}</React.Fragment>
-  );
-}
-
-function renderMarkdown(text) {
-  const lines = text.split('\n');
-  const elements = [];
-  let key = 0;
-  let i = 0;
-
-  function renderList(minIndent) {
-    const items = [];
-    while (i < lines.length) {
-      const line = lines[i];
-      if (line.trim() === '') { i++; continue; }
-      const indent = line.match(/^(\s*)/)[1].length;
-      const bulletMatch = line.trim().match(/^[-*]\s+(.*)$/);
-      if (!bulletMatch || indent < minIndent) break;
-      if (indent > minIndent) {
-        const nested = renderList(indent);
-        if (items.length > 0) items[items.length - 1].children = nested;
-        continue;
-      }
-      items.push({ text: bulletMatch[1] });
-      i++;
-    }
-    const listKey = key++;
-    return (
-      <ul key={`ul-${listKey}`} className="list-disc pl-5 space-y-1">
-        {items.map((item, idx) => (
-          <li key={idx}>
-            {renderMarkdownInline(item.text, `li-${listKey}-${idx}`)}
-            {item.children}
-          </li>
-        ))}
-      </ul>
-    );
-  }
-
-  while (i < lines.length) {
-    const line = lines[i];
-    const trimmed = line.trim();
-    if (trimmed === '') { i++; continue; }
-
-    const headingMatch = trimmed.match(/^(#{1,3})\s+(.*)$/);
-    if (headingMatch) {
-      const level = headingMatch[1].length;
-      const cls = level === 1 ? 'text-base font-display font-semibold mt-3 mb-1.5' : 'text-sm font-display font-semibold mt-3 mb-1';
-      elements.push(<p key={`h-${key}`} className={cls} style={{ color: TOKENS.text }}>{renderMarkdownInline(headingMatch[2], `h-${key++}`)}</p>);
-      i++;
-      continue;
-    }
-
-    const indent = line.match(/^(\s*)/)[1].length;
-    if (trimmed.match(/^[-*]\s+/)) {
-      elements.push(renderList(indent));
-      continue;
-    }
-
-    elements.push(<p key={`p-${key}`} className="mb-1.5">{renderMarkdownInline(trimmed, `p-${key++}`)}</p>);
-    i++;
-  }
-
-  return elements;
 }
 
 function LogsPanel({ team, logs, onAdd, onDelete, accessToken }) {
@@ -2514,6 +2407,10 @@ export default function App() {
 
             {activeTab === 'sales' && (
               <SalesPanel accessToken={session.access_token} />
+            )}
+
+            {activeTab === 'docs' && (
+              <DocumentationPanel accessToken={session.access_token} projects={projects} />
             )}
 
             {activeTab === 'logs' && (
