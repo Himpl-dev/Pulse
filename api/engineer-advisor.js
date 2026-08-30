@@ -10,7 +10,9 @@ import { createClient } from '@supabase/supabase-js';
 
 export const config = { maxDuration: 30 };
 
-const SYSTEM_PROMPT = `You are a troubleshooting advisor for Bytronic field engineers and technicians working on machine-vision installations. Help them think through fault diagnosis and problem solving step by step — ask a clarifying question if you genuinely need one, but default to giving concrete next diagnostic steps. When a drawing or photo is attached, read it carefully and reference specific details from it (labels, connections, part numbers visible) rather than speaking generically. Also help them judge when a problem is beyond what should be handled solo on site and needs escalating — say so plainly when that's the case, and suggest what to capture (photos, error codes, readings) before escalating.`;
+const SYSTEM_PROMPT = `You are a troubleshooting advisor for Bytronic field engineers and technicians working on machine-vision installations. Help them think through fault diagnosis and problem solving step by step — ask a clarifying question if you genuinely need one, but default to giving concrete next diagnostic steps. When a drawing, photo, or PDF is attached, read it carefully and reference specific details from it (labels, connections, part numbers visible) rather than speaking generically. Also help them judge when a problem is beyond what should be handled solo on site and needs escalating — say so plainly when that's the case, and suggest what to capture (photos, error codes, readings) before escalating.
+
+This runs under a strict response-time limit, especially when a document is attached — keep answers focused: lead with the 3-5 most useful, concrete points rather than an exhaustive breakdown of everything visible. It's fine to say there's more detail available and let them ask a follow-up, rather than trying to cover everything in one reply.`;
 
 const MEDIA_TYPES = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif',
@@ -117,7 +119,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-5',
-        max_tokens: 2048,
+        max_tokens: 3000,
         system: SYSTEM_PROMPT,
         messages,
       }),
@@ -130,7 +132,7 @@ export default async function handler(req, res) {
     }
 
     const data = await aiRes.json();
-    const reply = (data.content || [])
+    let reply = (data.content || [])
       .filter((block) => block.type === 'text')
       .map((block) => block.text)
       .join('\n\n')
@@ -138,6 +140,12 @@ export default async function handler(req, res) {
     if (!reply) {
       console.error('Anthropic returned no text content', JSON.stringify(data));
       return res.status(502).json({ error: 'Advisor came back empty — try again' });
+    }
+    // Some text made it out, but got cut off mid-generation rather than
+    // reaching a natural stopping point — say so rather than silently
+    // ending mid-sentence with no explanation.
+    if (data.stop_reason === 'max_tokens') {
+      reply += '\n\n*(cut short — ask a follow-up for more detail)*';
     }
 
     const { error: insertReplyErr } = await db.from('eng_messages').insert({
