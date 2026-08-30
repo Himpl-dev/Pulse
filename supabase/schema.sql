@@ -167,3 +167,17 @@ alter table pm_messages enable row level security;
 drop policy if exists "own messages only" on pm_messages;
 create policy "own messages only" on pm_messages
   for all using (auth.uid() = auth_user_id) with check (auth.uid() = auth_user_id);
+
+-- 13. Sales advisor conversations. Same private-per-user shape as
+-- hr_messages/pm_messages (blocks 11-12).
+create table if not exists sales_messages (
+  id uuid primary key,
+  auth_user_id uuid not null references auth.users(id) on delete cascade,
+  role text not null check (role in ('user', 'assistant')),
+  content text not null,
+  created_at timestamptz not null default now()
+);
+alter table sales_messages enable row level security;
+drop policy if exists "own messages only" on sales_messages;
+create policy "own messages only" on sales_messages
+  for all using (auth.uid() = auth_user_id) with check (auth.uid() = auth_user_id);

@@ -4,7 +4,7 @@ import {
   Users, Clock, AlertTriangle, Calendar, TrendingUp, PieChart as PieChartIcon,
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
   NotebookPen, LogOut, Copy, Check, Sparkles, Loader2, Search, MessageSquare, Download, Repeat,
-  Sun, Moon, ShieldCheck, LifeBuoy, Compass,
+  Sun, Moon, ShieldCheck, LifeBuoy, Compass, Handshake,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -19,6 +19,7 @@ import { OnboardingEmptyState } from './components/OnboardingEmptyState';
 import { GanttChart } from './components/GanttChart';
 import { HRPanel } from './components/HRPanel';
 import { PMPanel } from './components/PMPanel';
+import { SalesPanel } from './components/SalesPanel';
 
 /* ---------------------------------- tokens --------------------------------- */
 
@@ -74,6 +75,7 @@ const TABS = [
   { id: 'projects', label: 'Projects', icon: FolderKanban },
   { id: 'hr', label: 'HR', icon: LifeBuoy },
   { id: 'pm', label: 'PM', icon: Compass },
+  { id: 'sales', label: 'Sales', icon: Handshake },
   { id: 'logs', label: 'Logs', icon: NotebookPen },
   { id: 'admin', label: 'Admin', icon: ShieldCheck },
 ];
@@ -2508,6 +2510,10 @@ export default function App() {
                   projectId: p.projectId,
                 })}
               />
+            )}
+
+            {activeTab === 'sales' && (
+              <SalesPanel accessToken={session.access_token} />
             )}
 
             {activeTab === 'logs' && (
