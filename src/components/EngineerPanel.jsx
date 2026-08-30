@@ -1,15 +1,22 @@
 import React, { useEffect, useState } from 'react';
-import { Wrench, Paperclip, X } from 'lucide-react';
+import { Wrench, Paperclip, X, FileText } from 'lucide-react';
 import { TOKENS } from '../theme';
 import { supabase } from '../supabaseClient';
 import { AdvisorChat } from './AdvisorChat';
 
-const MAX_FILE_BYTES = 5 * 1024 * 1024; // Claude's per-image limit
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+// Claude's per-image limit is 5MB; PDFs are allowed up to 32MB.
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_PDF_BYTES = 20 * 1024 * 1024;
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf'];
 const BUCKET = 'eng_drawings';
 
-// Renders a signed-URL thumbnail for a message's attached drawing/photo —
-// the bucket is private, so there's no public URL to just point an <img> at.
+function isPdf(name) {
+  return (name || '').toLowerCase().endsWith('.pdf');
+}
+
+// Renders a signed-URL thumbnail for a message's attached drawing/photo/PDF
+// — the bucket is private, so there's no public URL to just point an <img>
+// at. PDFs can't render as an <img>, so those get a plain "open" link.
 function AttachmentThumb({ path, name }) {
   const [url, setUrl] = useState(null);
 
@@ -23,6 +30,13 @@ function AttachmentThumb({ path, name }) {
 
   if (!url) {
     return <p className="text-xs italic mb-1" style={{ color: TOKENS.textFaint }}>📎 {name || 'attachment'}</p>;
+  }
+  if (isPdf(name)) {
+    return (
+      <a href={url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 mb-1.5 text-xs underline" style={{ color: TOKENS.text }}>
+        <FileText size={13} /> {name || 'attachment.pdf'}
+      </a>
+    );
   }
   return (
     <a href={url} target="_blank" rel="noreferrer" className="block mb-1.5">
@@ -45,11 +59,12 @@ export function EngineerPanel({ accessToken, userId }) {
     if (!file) return;
     setFileError('');
     if (!ALLOWED_TYPES.includes(file.type)) {
-      setFileError('Only JPEG/PNG/WEBP/GIF images are supported.');
+      setFileError('Only JPEG/PNG/WEBP/GIF images or a PDF are supported.');
       return;
     }
-    if (file.size > MAX_FILE_BYTES) {
-      setFileError('Image is too large — 5MB max.');
+    const maxBytes = isPdf(file.name) ? MAX_PDF_BYTES : MAX_IMAGE_BYTES;
+    if (file.size > maxBytes) {
+      setFileError(isPdf(file.name) ? 'PDF is too large — 20MB max.' : 'Image is too large — 5MB max.');
       return;
     }
     setPendingFile(file);
@@ -59,7 +74,7 @@ export function EngineerPanel({ accessToken, userId }) {
     if (!pendingFile) return { prompt };
     const path = `${userId}/${crypto.randomUUID()}-${pendingFile.name}`;
     const { error } = await supabase.storage.from(BUCKET).upload(path, pendingFile);
-    if (error) throw new Error('Failed to upload the drawing — try again.');
+    if (error) throw new Error('Failed to upload the attachment — try again.');
     const name = pendingFile.name;
     setPendingFile(null);
     return { prompt, attachmentPath: path, attachmentName: name };
@@ -73,8 +88,8 @@ export function EngineerPanel({ accessToken, userId }) {
       icon={Wrench}
       iconColor={TOKENS.blue}
       title="Engineer / Technician Advisor"
-      description="Private to you — talk through a fault, attach a drawing or photo if it helps, and when to escalate."
-      emptyHint="Describe the fault or attach a drawing/photo, and talk through diagnosis, next steps, and when to escalate."
+      description="Private to you — talk through a fault, attach a drawing, photo, or PDF if it helps, and when to escalate."
+      emptyHint="Describe the fault or attach a drawing/photo/PDF, and talk through diagnosis, next steps, and when to escalate."
       buildRequestBody={buildRequestBody}
       renderAttachment={(m) => m.attachment_path && <AttachmentThumb path={m.attachment_path} name={m.attachment_name} />}
       formAccessory={
@@ -91,7 +106,7 @@ export function EngineerPanel({ accessToken, userId }) {
             htmlFor="eng-attach-input"
             className="p-2 rounded-lg cursor-pointer"
             style={{ background: pendingFile ? TOKENS.blue : TOKENS.surface2, color: pendingFile ? '#0B0D11' : TOKENS.textMuted }}
-            title={pendingFile ? pendingFile.name : 'Attach a drawing or photo'}
+            title={pendingFile ? pendingFile.name : 'Attach a drawing, photo, or PDF'}
           >
             <Paperclip size={16} />
           </label>

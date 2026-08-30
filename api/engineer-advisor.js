@@ -14,11 +14,16 @@ const SYSTEM_PROMPT = `You are a troubleshooting advisor for Bytronic field engi
 
 const MEDIA_TYPES = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif',
+  pdf: 'application/pdf',
 };
 
-function mediaTypeFor(filename) {
+// PDFs go in as a "document" content block, everything else as "image" —
+// same base64 source shape either way.
+function attachmentKindFor(filename) {
   const ext = (filename || '').split('.').pop().toLowerCase();
-  return MEDIA_TYPES[ext] || null;
+  const mediaType = MEDIA_TYPES[ext];
+  if (!mediaType) return null;
+  return { mediaType, blockType: ext === 'pdf' ? 'document' : 'image' };
 }
 
 export default async function handler(req, res) {
@@ -73,24 +78,24 @@ export default async function handler(req, res) {
     }
 
     // Replay history as text only (including a note when a past message had
-    // an attachment) — re-sending old image bytes every turn isn't worth the
+    // an attachment) — re-sending old file bytes every turn isn't worth the
     // token/latency cost for a chat that can run to many turns.
     const pastMessages = (history || []).map((m) => ({
       role: m.role,
-      content: m.attachment_name ? `${m.content}\n[Attached image: ${m.attachment_name}]` : m.content,
+      content: m.attachment_name ? `${m.content}\n[Attached file: ${m.attachment_name}]` : m.content,
     }));
 
     let newUserContent = prompt.trim();
     if (attachmentPath) {
-      const mediaType = mediaTypeFor(attachmentName);
-      if (mediaType) {
+      const kind = attachmentKindFor(attachmentName);
+      if (kind) {
         const { data: fileBlob, error: downloadErr } = await db.storage.from('eng_drawings').download(attachmentPath);
         if (downloadErr) {
           console.error('Failed to download attachment', downloadErr);
         } else {
           const base64 = Buffer.from(await fileBlob.arrayBuffer()).toString('base64');
           newUserContent = [
-            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+            { type: kind.blockType, source: { type: 'base64', media_type: kind.mediaType, data: base64 } },
             { type: 'text', text: prompt.trim() },
           ];
         }
@@ -105,6 +110,10 @@ export default async function handler(req, res) {
         'content-type': 'application/json',
         'x-api-key': process.env.ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
+        // Harmless if PDF support has since graduated to general
+        // availability — an unrecognized beta flag is just ignored — but
+        // protects against it still being gated.
+        'anthropic-beta': 'pdfs-2024-09-25',
       },
       body: JSON.stringify({
         model: 'claude-sonnet-5',
