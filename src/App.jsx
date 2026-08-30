@@ -4,7 +4,7 @@ import {
   Users, Clock, AlertTriangle, Calendar, TrendingUp, PieChart as PieChartIcon,
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
   NotebookPen, LogOut, Copy, Check, Sparkles, Loader2, Search, MessageSquare, Download, Repeat,
-  Sun, Moon, ShieldCheck,
+  Sun, Moon, ShieldCheck, LifeBuoy,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -17,6 +17,7 @@ import { CommandPalette } from './components/CommandPalette';
 import { AdminPanel } from './components/AdminPanel';
 import { OnboardingEmptyState } from './components/OnboardingEmptyState';
 import { GanttChart } from './components/GanttChart';
+import { HRPanel } from './components/HRPanel';
 
 /* ---------------------------------- tokens --------------------------------- */
 
@@ -70,6 +71,7 @@ const TABS = [
   { id: 'timeline', label: 'Timeline', icon: Calendar },
   { id: 'customers', label: 'Customers', icon: Building2 },
   { id: 'projects', label: 'Projects', icon: FolderKanban },
+  { id: 'hr', label: 'HR', icon: LifeBuoy },
   { id: 'logs', label: 'Logs', icon: NotebookPen },
   { id: 'admin', label: 'Admin', icon: ShieldCheck },
 ];
@@ -2483,6 +2485,10 @@ export default function App() {
                   </div>
                 </div>
               </div>
+            )}
+
+            {activeTab === 'hr' && (
+              <HRPanel accessToken={session.access_token} />
             )}
 
             {activeTab === 'logs' && (

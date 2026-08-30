@@ -135,3 +135,20 @@ create policy "management updates team" on team_members
   with check (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'));
 create policy "management deletes team" on team_members
   for delete using (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'));
+
+-- 11. Private HR advisor conversations. Strictest RLS in the app: a single
+--     policy scoped to auth.uid() = auth_user_id covers select/insert/update/
+--     delete, so nobody — including other management accounts — has any path
+--     to another user's rows. id is generated client-side (crypto.randomUUID()),
+--     matching how logs/task_comments already do it.
+create table if not exists hr_messages (
+  id uuid primary key,
+  auth_user_id uuid not null references auth.users(id) on delete cascade,
+  role text not null check (role in ('user', 'assistant')),
+  content text not null,
+  created_at timestamptz not null default now()
+);
+alter table hr_messages enable row level security;
+drop policy if exists "own messages only" on hr_messages;
+create policy "own messages only" on hr_messages
+  for all using (auth.uid() = auth_user_id) with check (auth.uid() = auth_user_id);
