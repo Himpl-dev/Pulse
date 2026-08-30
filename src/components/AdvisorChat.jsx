@@ -54,8 +54,9 @@ export function AdvisorChat({
     setError('');
     setInput('');
     setSending(true);
-    // Optimistic local bubble — replaced by the real, persisted rows (both
-    // this message and the reply) once the request completes.
+    // Optimistic local bubble — kept as-is on success (see below for why the
+    // reply is also shown locally rather than via a re-fetch), removed again
+    // on failure.
     const tempId = `temp-${Date.now()}`;
     setMessages((prev) => [...prev, { id: tempId, role: 'user', content: prompt, created_at: new Date().toISOString() }]);
     try {
@@ -76,7 +77,15 @@ export function AdvisorChat({
       }
       if (!res.ok) throw new Error(data.error || 'Failed to get a response');
       onResponse?.(data);
-      await loadMessages();
+      // Show the reply straight from the response rather than depending on
+      // re-fetching it from the DB — if the server-side write of the reply
+      // happens to fail after it was already generated, the user still sees
+      // the real answer instead of the whole exchange silently vanishing
+      // with no error (which is worse than a slightly-stale id/timestamp).
+      setMessages((prev) => [
+        ...prev,
+        { id: `assistant-${Date.now()}`, role: 'assistant', content: data.reply || '', created_at: new Date().toISOString() },
+      ]);
     } catch (err) {
       setError(err.message || 'Failed to get a response — try again.');
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
