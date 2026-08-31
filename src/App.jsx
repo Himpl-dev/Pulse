@@ -5,6 +5,7 @@ import {
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
   NotebookPen, LogOut, Sparkles, Loader2, Search, MessageSquare, Download, Repeat,
   Sun, Moon, ShieldCheck, LifeBuoy, Compass, Handshake, FileText, Wrench, Plane, StickyNote,
+  Bot, ChevronDown,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -94,6 +95,13 @@ const TABS = [
 // content is gated a second time at the render site (defense in depth; the
 // real security boundary is Supabase RLS, not this list).
 const MANAGEMENT_ONLY_TABS = new Set(['logs', 'admin']);
+
+// The AI agent tabs — grouped into one "Agents" dropdown in the nav bar
+// (there are now enough of these that listing each as its own pill made the
+// header too crowded), but still individually routable (?tab=hr etc.) and
+// still individually listed in the command palette — this only changes how
+// the nav bar renders them, not the underlying tab list.
+const AGENT_TAB_IDS = new Set(['hr', 'pm', 'sales', 'notes', 'docs', 'engineer', 'travel']);
 
 const LOG_TAGS = [
   { id: 'progress', label: 'Progress', color: TOKENS.teal },
@@ -1280,6 +1288,7 @@ export default function App() {
   const themeHex = THEME_HEX[theme];
   const [selectedMember, setSelectedMember] = useState(null);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [agentsMenuOpen, setAgentsMenuOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [timelineView, setTimelineView] = useState('list');
   const [openMemberStat, setOpenMemberStat] = useState(null);
@@ -1834,16 +1843,57 @@ export default function App() {
         </div>
 
         <nav className="flex items-center gap-1 p-1 rounded-full w-full sm:w-auto overflow-x-auto" style={{ background: TOKENS.surface }}>
-          {visibleTabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className="px-3 py-1.5 rounded-full text-sm flex items-center gap-1.5 transition-colors flex-shrink-0"
-              style={{ background: activeTab === tab.id ? TOKENS.surface2 : 'transparent', color: activeTab === tab.id ? TOKENS.text : TOKENS.textMuted }}
-            >
-              <tab.icon size={14} /> <span className="hidden sm:inline">{tab.label}</span>
-            </button>
-          ))}
+          {(() => {
+            let agentsButtonShown = false;
+            const agentTabs = visibleTabs.filter((t) => AGENT_TAB_IDS.has(t.id));
+            const activeAgentTab = agentTabs.find((t) => t.id === activeTab);
+            return visibleTabs.map((tab) => {
+              if (AGENT_TAB_IDS.has(tab.id)) {
+                if (agentsButtonShown) return null;
+                agentsButtonShown = true;
+                return (
+                  <div key="agents-menu" className="relative flex-shrink-0">
+                    <button
+                      onClick={() => setAgentsMenuOpen((o) => !o)}
+                      className="px-3 py-1.5 rounded-full text-sm flex items-center gap-1.5 transition-colors flex-shrink-0"
+                      style={{ background: activeAgentTab ? TOKENS.surface2 : 'transparent', color: activeAgentTab ? TOKENS.text : TOKENS.textMuted }}
+                    >
+                      <Bot size={14} />
+                      <span className="hidden sm:inline">{activeAgentTab ? activeAgentTab.label : 'Agents'}</span>
+                      <ChevronDown size={11} />
+                    </button>
+                    {agentsMenuOpen && (
+                      <div
+                        className="absolute left-0 mt-2 rounded-xl overflow-hidden z-20"
+                        style={{ width: 190, background: TOKENS.surface, border: `1px solid ${TOKENS.border}`, boxShadow: '0 12px 32px rgba(0,0,0,0.4)' }}
+                      >
+                        {agentTabs.map((t) => (
+                          <button
+                            key={t.id}
+                            onClick={() => { setActiveTab(t.id); setAgentsMenuOpen(false); }}
+                            className="w-full text-left px-3 py-2 text-sm flex items-center gap-2"
+                            style={{ background: activeTab === t.id ? TOKENS.surface2 : 'transparent', color: activeTab === t.id ? TOKENS.text : TOKENS.textMuted }}
+                          >
+                            <t.icon size={14} /> {t.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className="px-3 py-1.5 rounded-full text-sm flex items-center gap-1.5 transition-colors flex-shrink-0"
+                  style={{ background: activeTab === tab.id ? TOKENS.surface2 : 'transparent', color: activeTab === tab.id ? TOKENS.text : TOKENS.textMuted }}
+                >
+                  <tab.icon size={14} /> <span className="hidden sm:inline">{tab.label}</span>
+                </button>
+              );
+            });
+          })()}
         </nav>
 
         <div className="flex items-center gap-3">
