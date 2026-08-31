@@ -27,6 +27,7 @@ import { EngineerPanel } from './components/EngineerPanel';
 import { TravelPanel } from './components/TravelPanel';
 import { NotesPanel } from './components/NotesPanel';
 import { ScannerPanel } from './components/ScannerPanel';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { CopyButton } from './components/AiOutput';
 import { renderMarkdown, downloadTextFile } from './markdown';
 
@@ -2492,7 +2493,9 @@ export default function App() {
             )}
 
             {activeTab === 'scanner' && (
-              <ScannerPanel />
+              <ErrorBoundary>
+                <ScannerPanel />
+              </ErrorBoundary>
             )}
 
             {activeTab === 'docs' && (

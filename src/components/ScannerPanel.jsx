@@ -23,13 +23,23 @@ export function ScannerPanel() {
   // the browser's camera-in-use indicator can stay lit even once the app's
   // own UI looks stopped. Stopping the video element's MediaStream tracks
   // directly is the one guaranteed way to actually turn the camera off.
+  // Wrapped defensively: zxing may still have an in-flight scan frame
+  // mid-callback when this runs, and touching the video/stream out from
+  // under it shouldn't be allowed to throw past this function — deliberately
+  // NOT nulling srcObject here, since that's what was hitting the library's
+  // own scan loop mid-draw. Stopping the tracks is what actually releases
+  // the camera; leaving a dead stream referenced briefly is harmless.
   function releaseCamera() {
-    readerRef.current?.reset();
+    try {
+      readerRef.current?.reset();
+    } catch (err) {
+      console.error('Failed to reset code reader', err);
+    }
     readerRef.current = null;
-    const stream = videoRef.current?.srcObject;
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-      videoRef.current.srcObject = null;
+    try {
+      videoRef.current?.srcObject?.getTracks().forEach((track) => track.stop());
+    } catch (err) {
+      console.error('Failed to stop camera tracks', err);
     }
   }
 
@@ -68,7 +78,12 @@ export function ScannerPanel() {
         (res, err) => {
           if (res && !foundRef.current) {
             foundRef.current = true;
-            setResult({ text: res.getText(), format: BarcodeFormat[res.getBarcodeFormat()] });
+            try {
+              setResult({ text: res.getText(), format: BarcodeFormat[res.getBarcodeFormat()] });
+            } catch (readErr) {
+              console.error('Failed to read decoded result', readErr);
+              setError('Detected something but failed to read it — try again.');
+            }
           } else if (err && !(err instanceof NotFoundException)) {
             // NotFoundException just means "no code in this frame yet" —
             // fires constantly while scanning, not a real error.
