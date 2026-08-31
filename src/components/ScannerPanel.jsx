@@ -13,19 +13,46 @@ import { CopyButton } from './AiOutput';
 export function ScannerPanel() {
   const videoRef = useRef(null);
   const readerRef = useRef(null);
+  const foundRef = useRef(false); // guards against a burst of detections firing setResult repeatedly
   const [starting, setStarting] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState(null); // { text, format }
   const [error, setError] = useState('');
 
+  // codeReader.reset() alone doesn't reliably release the camera hardware —
+  // the browser's camera-in-use indicator can stay lit even once the app's
+  // own UI looks stopped. Stopping the video element's MediaStream tracks
+  // directly is the one guaranteed way to actually turn the camera off.
+  function releaseCamera() {
+    readerRef.current?.reset();
+    readerRef.current = null;
+    const stream = videoRef.current?.srcObject;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
+    }
+  }
+
   useEffect(() => {
     // Release the camera if the user navigates away mid-scan.
-    return () => readerRef.current?.reset();
+    return () => releaseCamera();
   }, []);
+
+  // Stopping the camera happens here, separately from detection — so a
+  // detected code shows up the instant it's seen, with camera cleanup as an
+  // independent follow-up rather than something that has to complete first.
+  useEffect(() => {
+    if (result) {
+      releaseCamera();
+      setScanning(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result]);
 
   async function startScan() {
     setError('');
     setResult(null);
+    foundRef.current = false;
     setStarting(true);
     try {
       const [{ BrowserMultiFormatReader }, { BarcodeFormat, NotFoundException }] = await Promise.all([
@@ -39,10 +66,9 @@ export function ScannerPanel() {
         { video: { facingMode: 'environment' } },
         videoRef.current,
         (res, err) => {
-          if (res) {
+          if (res && !foundRef.current) {
+            foundRef.current = true;
             setResult({ text: res.getText(), format: BarcodeFormat[res.getBarcodeFormat()] });
-            codeReader.reset();
-            setScanning(false);
           } else if (err && !(err instanceof NotFoundException)) {
             // NotFoundException just means "no code in this frame yet" —
             // fires constantly while scanning, not a real error.
@@ -66,7 +92,7 @@ export function ScannerPanel() {
   }
 
   function stopScan() {
-    readerRef.current?.reset();
+    releaseCamera();
     setScanning(false);
   }
 
