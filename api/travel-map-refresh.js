@@ -65,18 +65,19 @@ export default async function handler(req, res) {
 
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
-  const userRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
-    headers: { apikey: supabaseAnonKey, authorization: `Bearer ${token}` },
-  });
-  if (!userRes.ok) {
-    return res.status(401).json({ error: 'Invalid session' });
-  }
-
-  const db = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  });
 
   try {
+    const userRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: { apikey: supabaseAnonKey, authorization: `Bearer ${token}` },
+    });
+    if (!userRes.ok) {
+      return res.status(401).json({ error: 'Invalid session' });
+    }
+
+    const db = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+
     const [{ data: projects }, { data: tasks }, { data: team }] = await Promise.all([
       db.from('projects').select('id, name, subtitle, deadline, customer_id'),
       db.from('tasks').select('id, due, project_id, assignees'),
