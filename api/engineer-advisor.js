@@ -1,16 +1,18 @@
 // Vercel serverless function for the Engineer/Technician advisor chat. Same
-// user-scoped-client model as the other advisors. Unique to this one: an
-// optional attached drawing/photo, already uploaded by the client straight
-// to Supabase Storage (RLS-scoped to the caller's own folder — see
-// schema.sql block 14) before this endpoint is even called. This endpoint
-// only receives the storage path, downloads the bytes itself (still via the
-// user-scoped client, so it can only ever read what the caller could read),
-// and sends them to Claude as an image content block.
+// user-scoped-client model as the other advisors. Attachments — drawings,
+// photos, or PDF pages already converted to images client-side (see
+// src/pdfToImages.js — PDF rendering happens in the browser specifically so
+// this function never has to do slow document processing itself) — are
+// already uploaded to Supabase Storage (RLS-scoped to the caller's own
+// folder) before this endpoint is called. It only receives the storage
+// paths, downloads the bytes itself (still via the user-scoped client, so it
+// can only ever read what the caller could read), and sends them to Claude
+// as image content blocks.
 import { createClient } from '@supabase/supabase-js';
 
 export const config = { maxDuration: 30 };
 
-const SYSTEM_PROMPT = `You are a troubleshooting advisor for Bytronic field engineers and technicians working on machine-vision installations. Help them think through fault diagnosis and problem solving step by step — ask a clarifying question if you genuinely need one, but default to giving concrete next diagnostic steps. When a drawing or photo is attached, read it carefully and reference specific details from it (labels, connections, part numbers visible) rather than speaking generically. Also help them judge when a problem is beyond what should be handled solo on site and needs escalating — say so plainly when that's the case, and suggest what to capture (photos, error codes, readings) before escalating.
+const SYSTEM_PROMPT = `You are a troubleshooting advisor for Bytronic field engineers and technicians working on machine-vision installations. Help them think through fault diagnosis and problem solving step by step — ask a clarifying question if you genuinely need one, but default to giving concrete next diagnostic steps. When a drawing or photo is attached (including pages converted from a PDF), read it carefully and reference specific details from it (labels, connections, part numbers visible) rather than speaking generically. Also help them judge when a problem is beyond what should be handled solo on site and needs escalating — say so plainly when that's the case, and suggest what to capture (photos, error codes, readings) before escalating.
 
 This runs under a strict response-time limit — keep answers focused: lead with the 3-5 most useful, concrete points rather than an exhaustive breakdown of everything visible. It's fine to say there's more detail available and let them ask a follow-up, rather than trying to cover everything in one reply.`;
 
@@ -43,10 +45,11 @@ export default async function handler(req, res) {
   }
   const caller = await userRes.json();
 
-  const { prompt, attachmentPath, attachmentName } = req.body || {};
+  const { prompt, attachments } = req.body || {};
   if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
     return res.status(400).json({ error: 'Missing prompt' });
   }
+  const attachmentList = Array.isArray(attachments) ? attachments.slice(0, 5) : [];
 
   const db = createClient(supabaseUrl, supabaseAnonKey, {
     global: { headers: { Authorization: `Bearer ${token}` } },
@@ -55,7 +58,7 @@ export default async function handler(req, res) {
   try {
     const { data: history } = await db
       .from('eng_messages')
-      .select('role, content, attachment_name')
+      .select('role, content, attachment_name, attachments')
       .eq('auth_user_id', caller.id)
       .order('created_at', { ascending: true })
       .limit(12);
@@ -66,8 +69,7 @@ export default async function handler(req, res) {
       auth_user_id: caller.id,
       role: 'user',
       content: prompt.trim(),
-      attachment_path: attachmentPath || null,
-      attachment_name: attachmentName || null,
+      attachments: attachmentList.length ? attachmentList : null,
     });
     if (insertUserErr) {
       console.error('Failed to save engineer message', insertUserErr);
@@ -75,27 +77,31 @@ export default async function handler(req, res) {
     }
 
     // Replay history as text only (including a note when a past message had
-    // an attachment) — re-sending old image bytes every turn isn't worth the
-    // token/latency cost for a chat that can run to many turns.
-    const pastMessages = (history || []).map((m) => ({
-      role: m.role,
-      content: m.attachment_name ? `${m.content}\n[Attached image: ${m.attachment_name}]` : m.content,
-    }));
+    // attachment(s)) — re-sending old image bytes every turn isn't worth the
+    // token/latency cost for a chat that can run to many turns. Handles both
+    // the new `attachments` array and the older single `attachment_name`
+    // column from before multi-attachment support existed.
+    const pastMessages = (history || []).map((m) => {
+      const names = m.attachments?.length ? m.attachments.map((a) => a.name).join(', ') : m.attachment_name;
+      return { role: m.role, content: names ? `${m.content}\n[Attached: ${names}]` : m.content };
+    });
 
     let newUserContent = prompt.trim();
-    if (attachmentPath) {
-      const mediaType = mediaTypeFor(attachmentName);
-      if (mediaType) {
-        const { data: fileBlob, error: downloadErr } = await db.storage.from('eng_drawings').download(attachmentPath);
+    if (attachmentList.length > 0) {
+      const downloads = await Promise.all(attachmentList.map(async (a) => {
+        const mediaType = mediaTypeFor(a.name);
+        if (!mediaType) return null;
+        const { data: fileBlob, error: downloadErr } = await db.storage.from('eng_drawings').download(a.path);
         if (downloadErr) {
-          console.error('Failed to download attachment', downloadErr);
-        } else {
-          const base64 = Buffer.from(await fileBlob.arrayBuffer()).toString('base64');
-          newUserContent = [
-            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-            { type: 'text', text: prompt.trim() },
-          ];
+          console.error('Failed to download attachment', a.path, downloadErr);
+          return null;
         }
+        const base64 = Buffer.from(await fileBlob.arrayBuffer()).toString('base64');
+        return { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } };
+      }));
+      const imageBlocks = downloads.filter(Boolean);
+      if (imageBlocks.length > 0) {
+        newUserContent = [...imageBlocks, { type: 'text', text: prompt.trim() }];
       }
     }
 

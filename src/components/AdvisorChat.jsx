@@ -61,6 +61,11 @@ export function AdvisorChat({
     setMessages((prev) => [...prev, { id: tempId, role: 'user', content: prompt, created_at: new Date().toISOString() }]);
     try {
       const body = buildRequestBody ? await buildRequestBody(prompt) : { prompt };
+      // Merge any extra fields the body carries (e.g. Engineer's
+      // `attachments`) into the optimistic bubble, so it renders the same
+      // way a persisted row would — renderAttachment reads from the message
+      // object, not from `body` directly.
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, ...body } : m)));
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },

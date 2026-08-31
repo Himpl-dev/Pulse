@@ -211,3 +211,10 @@ drop policy if exists "own eng_drawings only" on storage.objects;
 create policy "own eng_drawings only" on storage.objects
   for all using (bucket_id = 'eng_drawings' and (storage.foldername(name))[1] = auth.uid()::text)
   with check (bucket_id = 'eng_drawings' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- 15. Multiple attachments per engineer message — a multi-page PDF gets
+-- converted to up to 5 page images client-side (see src/pdfToImages.js) and
+-- sent as several images in one message. Additive: the old attachment_path/
+-- attachment_name columns from block 14 stay as-is for existing single-image
+-- rows; new rows use this array field instead.
+alter table eng_messages add column if not exists attachments jsonb;
