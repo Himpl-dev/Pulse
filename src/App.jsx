@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
   NotebookPen, LogOut, Sparkles, Loader2, Search, MessageSquare, Download, Repeat,
   Sun, Moon, ShieldCheck, LifeBuoy, Compass, Handshake, FileText, Wrench, Plane, StickyNote,
-  Bot, ChevronDown,
+  Bot, ChevronDown, ScanLine,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -26,6 +26,7 @@ import { DocumentationPanel } from './components/DocumentationPanel';
 import { EngineerPanel } from './components/EngineerPanel';
 import { TravelPanel } from './components/TravelPanel';
 import { NotesPanel } from './components/NotesPanel';
+import { ScannerPanel } from './components/ScannerPanel';
 import { CopyButton } from './components/AiOutput';
 import { renderMarkdown, downloadTextFile } from './markdown';
 
@@ -88,6 +89,7 @@ const TABS = [
   { id: 'docs', label: 'Docs', icon: FileText },
   { id: 'engineer', label: 'Engineer', icon: Wrench },
   { id: 'travel', label: 'Travel', icon: Plane },
+  { id: 'scanner', label: 'Scanner', icon: ScanLine },
   { id: 'logs', label: 'Logs', icon: NotebookPen },
   { id: 'admin', label: 'Admin', icon: ShieldCheck },
 ];
@@ -102,7 +104,7 @@ const MANAGEMENT_ONLY_TABS = new Set(['logs', 'admin']);
 // header too crowded), but still individually routable (?tab=hr etc.) and
 // still individually listed in the command palette — this only changes how
 // the nav bar renders them, not the underlying tab list.
-const AGENT_TAB_IDS = new Set(['hr', 'pm', 'sales', 'notes', 'docs', 'engineer', 'travel']);
+const AGENT_TAB_IDS = new Set(['hr', 'pm', 'sales', 'notes', 'docs', 'engineer', 'travel', 'scanner']);
 
 const LOG_TAGS = [
   { id: 'progress', label: 'Progress', color: TOKENS.teal },
@@ -2487,6 +2489,10 @@ export default function App() {
 
             {activeTab === 'notes' && (
               <NotesPanel userId={session.user.id} projects={projects} />
+            )}
+
+            {activeTab === 'scanner' && (
+              <ScannerPanel />
             )}
 
             {activeTab === 'docs' && (
