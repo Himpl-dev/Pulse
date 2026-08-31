@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { FileText, Loader2, Download } from 'lucide-react';
+import { FileText, Loader2, Download, StickyNote } from 'lucide-react';
 import { TOKENS } from '../theme';
 import { CopyButton } from './AiOutput';
 import { renderMarkdown, downloadTextFile } from '../markdown';
+import { supabase } from '../supabaseClient';
 
 // Keep ids in sync with the TEMPLATES map in api/documentation.js — each id
 // there defines the actual section structure for that document type.
@@ -30,6 +31,7 @@ export function DocumentationPanel({ accessToken, projects }) {
   const [details, setDetails] = useState('');
   const [generatedDoc, setGeneratedDoc] = useState('');
   const [generating, setGenerating] = useState(false);
+  const [insertingNotes, setInsertingNotes] = useState(false);
   const [error, setError] = useState('');
 
   const template = DOCUMENT_TEMPLATES.find((t) => t.id === templateId);
@@ -68,6 +70,33 @@ export function DocumentationPanel({ accessToken, projects }) {
     downloadTextFile(filename, generatedDoc, 'text/markdown');
   }
 
+  // Pulls in this project's notes from the Notes tab — RLS already scopes
+  // this to the caller's own notes, same as reading user_notes anywhere else.
+  async function insertNotes() {
+    if (!projectId) return;
+    setInsertingNotes(true);
+    setError('');
+    try {
+      const { data, error: fetchErr } = await supabase
+        .from('user_notes')
+        .select('content, created_at')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: true });
+      if (fetchErr) throw fetchErr;
+      if (!data?.length) {
+        setError('No notes found for this project.');
+        return;
+      }
+      const notesBlock = data.map((n) => `- ${n.content}`).join('\n');
+      setDetails((prev) => (prev.trim() ? `${prev.trim()}\n\n${notesBlock}` : notesBlock));
+    } catch (err) {
+      console.error('Failed to insert notes', err);
+      setError('Failed to load notes — try again.');
+    } finally {
+      setInsertingNotes(false);
+    }
+  }
+
   return (
     <div className="space-y-4 max-w-2xl">
       <div className="rounded-xl p-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
@@ -88,13 +117,26 @@ export function DocumentationPanel({ accessToken, projects }) {
             </select>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg px-3 py-2 text-sm" style={inputStyle} />
           </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs" style={{ color: TOKENS.textFaint }}>Details</span>
+            <button
+              type="button"
+              onClick={insertNotes}
+              disabled={!projectId || insertingNotes}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs disabled:opacity-40"
+              style={{ color: TOKENS.textMuted }}
+              title={projectId ? 'Insert your notes for this project' : 'Select a project first'}
+            >
+              {insertingNotes ? <Loader2 size={12} className="animate-spin" /> : <StickyNote size={12} />} Insert my notes
+            </button>
+          </div>
           <textarea
             value={details}
             onChange={(e) => setDetails(e.target.value)}
             placeholder="Describe what happened / what's needed — as much detail as you have, the draft will only use what you give it."
             rows={4}
-            className="rounded-lg px-3 py-2 text-sm resize-none"
-            style={inputStyle}
+            className="rounded-lg px-3 py-2 text-sm resize-y"
+            style={{ ...inputStyle, minHeight: 90 }}
           />
           <button
             type="submit"

@@ -218,3 +218,20 @@ create policy "own eng_drawings only" on storage.objects
 -- attachment_name columns from block 14 stay as-is for existing single-image
 -- rows; new rows use this array field instead.
 alter table eng_messages add column if not exists attachments jsonb;
+
+-- 16. Personal work notes — a private scratchpad, optionally tagged to a
+-- project, that feeds into the Documentation agent (see DocumentationPanel's
+-- "insert my notes" button). No AI call involved in note-taking itself, so
+-- no serverless-timeout concerns here. Private-per-user, same shape as the
+-- hr/pm/sales/eng_messages tables.
+create table if not exists user_notes (
+  id uuid primary key,
+  auth_user_id uuid not null references auth.users(id) on delete cascade,
+  project_id text,
+  content text not null,
+  created_at timestamptz not null default now()
+);
+alter table user_notes enable row level security;
+drop policy if exists "own notes only" on user_notes;
+create policy "own notes only" on user_notes
+  for all using (auth.uid() = auth_user_id) with check (auth.uid() = auth_user_id);

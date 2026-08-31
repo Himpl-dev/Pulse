@@ -4,7 +4,7 @@ import {
   Users, Clock, AlertTriangle, Calendar, TrendingUp, PieChart as PieChartIcon,
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
   NotebookPen, LogOut, Sparkles, Loader2, Search, MessageSquare, Download, Repeat,
-  Sun, Moon, ShieldCheck, LifeBuoy, Compass, Handshake, FileText, Wrench, Plane,
+  Sun, Moon, ShieldCheck, LifeBuoy, Compass, Handshake, FileText, Wrench, Plane, StickyNote,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -23,6 +23,7 @@ import { SalesPanel } from './components/SalesPanel';
 import { DocumentationPanel } from './components/DocumentationPanel';
 import { EngineerPanel } from './components/EngineerPanel';
 import { TravelPanel } from './components/TravelPanel';
+import { NotesPanel } from './components/NotesPanel';
 import { CopyButton } from './components/AiOutput';
 import { renderMarkdown, downloadTextFile } from './markdown';
 
@@ -81,6 +82,7 @@ const TABS = [
   { id: 'hr', label: 'HR', icon: LifeBuoy },
   { id: 'pm', label: 'PM', icon: Compass },
   { id: 'sales', label: 'Sales', icon: Handshake },
+  { id: 'notes', label: 'Notes', icon: StickyNote },
   { id: 'docs', label: 'Docs', icon: FileText },
   { id: 'engineer', label: 'Engineer', icon: Wrench },
   { id: 'travel', label: 'Travel', icon: Plane },
@@ -2411,6 +2413,10 @@ export default function App() {
 
             {activeTab === 'sales' && (
               <SalesPanel accessToken={session.access_token} />
+            )}
+
+            {activeTab === 'notes' && (
+              <NotesPanel userId={session.user.id} projects={projects} />
             )}
 
             {activeTab === 'docs' && (
