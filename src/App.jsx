@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
   NotebookPen, LogOut, Sparkles, Loader2, Search, MessageSquare, Download, Repeat,
   Sun, Moon, ShieldCheck, LifeBuoy, Compass, Handshake, FileText, Wrench, Plane, StickyNote,
-  Bot, ChevronDown, ScanLine,
+  Bot, ChevronDown, ScanLine, Globe2,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -27,6 +27,7 @@ import { EngineerPanel } from './components/EngineerPanel';
 import { TravelPanel } from './components/TravelPanel';
 import { NotesPanel } from './components/NotesPanel';
 import { ScannerPanel } from './components/ScannerPanel';
+import { WorldMapPanel } from './components/WorldMapPanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { CopyButton } from './components/AiOutput';
 import { renderMarkdown, downloadTextFile } from './markdown';
@@ -91,6 +92,7 @@ const TABS = [
   { id: 'engineer', label: 'Engineer', icon: Wrench },
   { id: 'travel', label: 'Travel', icon: Plane },
   { id: 'scanner', label: 'Scanner', icon: ScanLine },
+  { id: 'worldmap', label: 'World Map', icon: Globe2 },
   { id: 'logs', label: 'Logs', icon: NotebookPen },
   { id: 'admin', label: 'Admin', icon: ShieldCheck },
 ];
@@ -2495,6 +2497,12 @@ export default function App() {
             {activeTab === 'scanner' && (
               <ErrorBoundary>
                 <ScannerPanel />
+              </ErrorBoundary>
+            )}
+
+            {activeTab === 'worldmap' && (
+              <ErrorBoundary>
+                <WorldMapPanel accessToken={session.access_token} team={team} customers={CUSTOMERS} />
               </ErrorBoundary>
             )}
 

@@ -235,3 +235,31 @@ alter table user_notes enable row level security;
 drop policy if exists "own notes only" on user_notes;
 create policy "own notes only" on user_notes
   for all using (auth.uid() = auth_user_id) with check (auth.uid() = auth_user_id);
+
+-- 17. World Map: AI-inferred travel history, cached here rather than
+-- computed live on every page view. api/travel-map-refresh.js reads
+-- projects+tasks (already broadly visible to everyone — deliberately NOT
+-- reading logs/user_notes, which are private/restricted) and has Claude
+-- infer who likely worked where and roughly when, replacing this table's
+-- contents each time "Refresh" is run. Open read/write to any authenticated
+-- user, matching projects/tasks' own openness — there's no privacy reason
+-- to restrict this since it's derived entirely from already-shared data,
+-- and this is the one place in the app meant to be visible to everyone
+-- (bragging-rights leaderboard), unlike every other agent's private
+-- per-user table.
+create table if not exists travel_entries (
+  id uuid primary key,
+  member_id text not null,
+  country text not null,
+  city text,
+  customer_id text,
+  project_id text,
+  start_date date,
+  end_date date,
+  note text,
+  created_at timestamptz not null default now()
+);
+alter table travel_entries enable row level security;
+drop policy if exists "shared travel entries" on travel_entries;
+create policy "shared travel entries" on travel_entries
+  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
