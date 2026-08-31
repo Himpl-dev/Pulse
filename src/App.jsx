@@ -105,7 +105,7 @@ const MANAGEMENT_ONLY_TABS = new Set(['logs', 'admin']);
 // header too crowded), but still individually routable (?tab=hr etc.) and
 // still individually listed in the command palette — this only changes how
 // the nav bar renders them, not the underlying tab list.
-const AGENT_TAB_IDS = new Set(['hr', 'pm', 'sales', 'notes', 'docs', 'engineer', 'travel', 'scanner']);
+const AGENT_TAB_IDS = new Set(['hr', 'pm', 'sales', 'notes', 'docs', 'engineer', 'travel']);
 
 const LOG_TAGS = [
   { id: 'progress', label: 'Progress', color: TOKENS.teal },
