@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { supabase } from './supabaseClient';
 import {
   Users, Clock, AlertTriangle, Calendar, TrendingUp, PieChart as PieChartIcon,
@@ -1289,6 +1290,20 @@ export default function App() {
   const [selectedMember, setSelectedMember] = useState(null);
   const [notifOpen, setNotifOpen] = useState(false);
   const [agentsMenuOpen, setAgentsMenuOpen] = useState(false);
+  const [agentsMenuPos, setAgentsMenuPos] = useState(null);
+  const agentsButtonRef = useRef(null);
+
+  // The nav bar has overflow-x-auto (so the tab strip can scroll on narrow
+  // screens), which also clips anything that overflows it vertically —
+  // including a plain absolutely-positioned dropdown. Portal the panel to
+  // document.body instead, positioned from the button's own on-screen rect.
+  function toggleAgentsMenu() {
+    if (!agentsMenuOpen && agentsButtonRef.current) {
+      const rect = agentsButtonRef.current.getBoundingClientRect();
+      setAgentsMenuPos({ top: rect.bottom + 6, left: rect.left });
+    }
+    setAgentsMenuOpen((o) => !o);
+  }
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [timelineView, setTimelineView] = useState('list');
   const [openMemberStat, setOpenMemberStat] = useState(null);
@@ -1854,7 +1869,8 @@ export default function App() {
                 return (
                   <div key="agents-menu" className="relative flex-shrink-0">
                     <button
-                      onClick={() => setAgentsMenuOpen((o) => !o)}
+                      ref={agentsButtonRef}
+                      onClick={toggleAgentsMenu}
                       className="px-3 py-1.5 rounded-full text-sm flex items-center gap-1.5 transition-colors flex-shrink-0"
                       style={{ background: activeAgentTab ? TOKENS.surface2 : 'transparent', color: activeAgentTab ? TOKENS.text : TOKENS.textMuted }}
                     >
@@ -1862,22 +1878,26 @@ export default function App() {
                       <span className="hidden sm:inline">{activeAgentTab ? activeAgentTab.label : 'Agents'}</span>
                       <ChevronDown size={11} />
                     </button>
-                    {agentsMenuOpen && (
-                      <div
-                        className="absolute left-0 mt-2 rounded-xl overflow-hidden z-20"
-                        style={{ width: 190, background: TOKENS.surface, border: `1px solid ${TOKENS.border}`, boxShadow: '0 12px 32px rgba(0,0,0,0.4)' }}
-                      >
-                        {agentTabs.map((t) => (
-                          <button
-                            key={t.id}
-                            onClick={() => { setActiveTab(t.id); setAgentsMenuOpen(false); }}
-                            className="w-full text-left px-3 py-2 text-sm flex items-center gap-2"
-                            style={{ background: activeTab === t.id ? TOKENS.surface2 : 'transparent', color: activeTab === t.id ? TOKENS.text : TOKENS.textMuted }}
-                          >
-                            <t.icon size={14} /> {t.label}
-                          </button>
-                        ))}
-                      </div>
+                    {agentsMenuOpen && agentsMenuPos && createPortal(
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setAgentsMenuOpen(false)} />
+                        <div
+                          className="fixed rounded-xl overflow-hidden z-50"
+                          style={{ top: agentsMenuPos.top, left: agentsMenuPos.left, width: 190, background: TOKENS.surface, border: `1px solid ${TOKENS.border}`, boxShadow: '0 12px 32px rgba(0,0,0,0.4)' }}
+                        >
+                          {agentTabs.map((t) => (
+                            <button
+                              key={t.id}
+                              onClick={() => { setActiveTab(t.id); setAgentsMenuOpen(false); }}
+                              className="w-full text-left px-3 py-2 text-sm flex items-center gap-2"
+                              style={{ background: activeTab === t.id ? TOKENS.surface2 : 'transparent', color: activeTab === t.id ? TOKENS.text : TOKENS.textMuted }}
+                            >
+                              <t.icon size={14} /> {t.label}
+                            </button>
+                          ))}
+                        </div>
+                      </>,
+                      document.body
                     )}
                   </div>
                 );
