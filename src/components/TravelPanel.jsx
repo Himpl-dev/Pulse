@@ -15,7 +15,6 @@ export function TravelPanel({ accessToken }) {
   const [destination, setDestination] = useState('');
   const [departDate, setDepartDate] = useState('');
   const [returnDate, setReturnDate] = useState('');
-  const [currency, setCurrency] = useState('');
   const [scope, setScope] = useState('');
   const [briefing, setBriefing] = useState('');
   const [places, setPlaces] = useState([]);
@@ -40,7 +39,6 @@ export function TravelPanel({ accessToken }) {
           destination: destination.trim(),
           departDate: departDate || null,
           returnDate: returnDate || null,
-          currency: currency.trim() || null,
           scope: scope.trim(),
         }),
       });
@@ -84,7 +82,7 @@ export function TravelPanel({ accessToken }) {
           <Plane size={15} /> Travel
         </h2>
         <p className="text-xs mb-3" style={{ color: TOKENS.textFaint }}>
-          Trip briefing — budget/rental-car guidance, an itinerary outline, and local notes. Flights use live search when configured; hotel search isn't live yet, just advisory guidance.
+          Trip briefing — budget/rental-car guidance, an itinerary outline, and local notes. Flights use live search when configured; hotel search isn't live yet, just advisory guidance. Currency is resolved automatically from the destination.
         </p>
         <form onSubmit={generate} className="flex flex-col gap-2">
           <div className="flex gap-2 flex-wrap">
@@ -94,15 +92,14 @@ export function TravelPanel({ accessToken }) {
           <div className="flex gap-2 flex-wrap">
             <input type="date" value={departDate} onChange={(e) => setDepartDate(e.target.value)} className="rounded-lg px-3 py-2 text-sm flex-1 min-w-[140px]" style={inputStyle} title="Departure date" />
             <input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className="rounded-lg px-3 py-2 text-sm flex-1 min-w-[140px]" style={inputStyle} title="Return date" />
-            <input value={currency} onChange={(e) => setCurrency(e.target.value)} placeholder="Destination currency (e.g. EUR)" className="rounded-lg px-3 py-2 text-sm flex-1 min-w-[140px]" style={inputStyle} />
           </div>
           <textarea
             value={scope}
             onChange={(e) => setScope(e.target.value)}
             placeholder="Scope of work on site — what's being installed/commissioned/serviced, and any relevant detail."
-            rows={3}
-            className="rounded-lg px-3 py-2 text-sm resize-none"
-            style={inputStyle}
+            rows={5}
+            className="rounded-lg px-3 py-2 text-sm resize-y"
+            style={{ ...inputStyle, minHeight: 110 }}
           />
           <button
             type="submit"

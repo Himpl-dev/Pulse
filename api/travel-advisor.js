@@ -11,9 +11,11 @@
 // API, but sandbox data, not guaranteed live/bookable production prices.
 // Hotels: advisory only for now, no live search (Amadeus's hotel flow is a
 // much more involved multi-step API — can be added later if flights prove
-// useful first). News: NewsAPI.org free tier. Currency: frankfurter.app,
-// free and keyless. Any of these that aren't configured (no env var) or
-// fail are just skipped — the briefing still generates without them.
+// useful first). News: NewsAPI.org free tier. Currency: resolved
+// automatically from the destination text (Nominatim geocode -> country ->
+// currency -> frankfurter.app rate — all free/keyless), no user input
+// needed. Any of these that aren't configured (no env var) or fail are just
+// skipped — the briefing still generates without them.
 import { createClient } from '@supabase/supabase-js';
 
 export const config = { maxDuration: 30 };
@@ -109,18 +111,42 @@ async function searchFlights({ origin, destination, departDate, returnDate }) {
   }
 }
 
-async function getCurrencyRate(currency) {
-  if (!currency) return null;
-  const code = currency.trim().toUpperCase();
-  if (code === 'GBP') return '1 GBP = 1 GBP (destination currency is GBP)';
+// ISO 3166 country code -> ISO 4217 currency code, for resolving a
+// free-text destination into a currency automatically (covers the
+// countries a trip is realistically headed to; unlisted ones just skip the
+// currency section rather than guessing).
+const COUNTRY_CURRENCY = {
+  GB: 'GBP', IE: 'EUR', FR: 'EUR', DE: 'EUR', ES: 'EUR', IT: 'EUR', PT: 'EUR', NL: 'EUR', BE: 'EUR',
+  LU: 'EUR', AT: 'EUR', FI: 'EUR', GR: 'EUR', SK: 'EUR', SI: 'EUR', EE: 'EUR', LV: 'EUR', LT: 'EUR',
+  CY: 'EUR', MT: 'EUR', HR: 'EUR', PL: 'PLN', CZ: 'CZK', HU: 'HUF', RO: 'RON', BG: 'BGN', SE: 'SEK',
+  DK: 'DKK', NO: 'NOK', CH: 'CHF', IS: 'ISK', TR: 'TRY', UA: 'UAH', RS: 'RSD', US: 'USD', CA: 'CAD',
+  MX: 'MXN', BR: 'BRL', AR: 'ARS', CL: 'CLP', CO: 'COP', PE: 'PEN', CN: 'CNY', JP: 'JPY', KR: 'KRW',
+  IN: 'INR', TH: 'THB', VN: 'VND', ID: 'IDR', MY: 'MYR', SG: 'SGD', PH: 'PHP', TW: 'TWD', HK: 'HKD',
+  AU: 'AUD', NZ: 'NZD', ZA: 'ZAR', NG: 'NGN', EG: 'EGP', MA: 'MAD', KE: 'KES', AE: 'AED', SA: 'SAR',
+  QA: 'QAR', IL: 'ILS', JO: 'JOD', KW: 'KWD', BH: 'BHD', OM: 'OMR', PK: 'PKR', BD: 'BDT', RU: 'RUB',
+};
+
+async function resolveCurrency(destination) {
+  if (!destination) return null;
   try {
-    const res = await fetchWithTimeout(`https://api.frankfurter.app/latest?from=GBP&to=${encodeURIComponent(code)}`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    const rate = data.rates?.[code];
-    return rate ? `1 GBP ≈ ${rate} ${code} (as of ${data.date})` : null;
+    const params = new URLSearchParams({ q: destination, format: 'jsonv2', limit: '1', addressdetails: '1' });
+    const geoRes = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?${params}`, {
+      headers: { 'User-Agent': 'pulse-dashboard-travel-advisor (internal Bytronic tool)', 'Accept-Language': 'en' },
+    });
+    if (!geoRes.ok) return null;
+    const geoData = await geoRes.json();
+    const countryCode = geoData[0]?.address?.country_code?.toUpperCase();
+    const currency = countryCode && COUNTRY_CURRENCY[countryCode];
+    if (!currency) return null;
+    if (currency === 'GBP') return '1 GBP = 1 GBP (destination currency is GBP)';
+
+    const rateRes = await fetchWithTimeout(`https://api.frankfurter.app/latest?from=GBP&to=${currency}`);
+    if (!rateRes.ok) return null;
+    const rateData = await rateRes.json();
+    const rate = rateData.rates?.[currency];
+    return rate ? `1 GBP ≈ ${rate} ${currency} (as of ${rateData.date})` : null;
   } catch (err) {
-    console.error('Currency lookup failed', err);
+    console.error('Currency resolution failed', err);
     return null;
   }
 }
@@ -160,7 +186,7 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Invalid session' });
   }
 
-  const { origin, destination, departDate, returnDate, scope, currency } = req.body || {};
+  const { origin, destination, departDate, returnDate, scope } = req.body || {};
   if (!destination || typeof destination !== 'string' || !destination.trim()) {
     return res.status(400).json({ error: 'Missing destination' });
   }
@@ -177,7 +203,7 @@ export default async function handler(req, res) {
   try {
     const [flights, rate, headlines] = await Promise.all([
       searchFlights({ origin, destination, departDate, returnDate }),
-      getCurrencyRate(currency),
+      resolveCurrency(destination),
       getHeadlines(destination),
     ]);
 
