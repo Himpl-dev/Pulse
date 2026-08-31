@@ -12,6 +12,7 @@ const DOCUMENT_TEMPLATES = [
   { id: 'site-survey', label: 'Site Survey Report' },
   { id: 'trial-summary', label: 'Customer Trial Summary' },
   { id: 'service-visit', label: 'Service Visit Report' },
+  { id: 'site-report', label: 'Site Report' },
   { id: 'panel-route-card', label: 'Electrical Panel Build Route Card' },
   { id: 'pre-site-checks', label: 'Pre-Site Checks' },
   { id: 'rams', label: "RAMS (Risk Assessment & Method Statement)" },

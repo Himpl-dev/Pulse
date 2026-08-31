@@ -39,6 +39,20 @@ const TEMPLATES = {
     label: 'Service Visit Report',
     sections: 'Customer / Site; Date & Time on Site; Reported Issue; Diagnosis; Work Carried Out; Parts Used; Resolution Status; Follow-up Required; Engineer.',
   },
+  'site-report': {
+    label: 'Site Report',
+    sections: '1. Site Details (Site Name; Date; Arrival Time; Departure Time; Engineers on Site); 2. Work Carried Out; 3. Issues / Observations; 4. Time Lost (if applicable); 5. Outstanding Actions; 6. Summary.',
+    // Stricter than the other templates — this one has an explicit house
+    // style (concise, bullet-only, no narrative) rather than free-form
+    // prose sections, per the rules given for this document type.
+    extraRules: `- Under "Work Carried Out": list only what was physically done — no assumptions, no narrative.
+- Under "Issues / Observations": list any faults, delays, or risks identified.
+- Under "Time Lost": clearly state the cause, and estimate duration only if one was given. Omit this section entirely if nothing was lost.
+- Under "Outstanding Actions": list what still needs to be completed, and who's responsible if known.
+- "Summary" is 1–2 sentences maximum, high-level status only — not a recap of the other sections.
+- Keep everything concise and factual — every section except Summary is bullet points only, never paragraphs.
+- Always include a clear "Site Name" line — it's how this report can later be matched to a location.`,
+  },
   'panel-route-card': {
     label: 'Electrical Panel Build Route Card',
     sections: 'Panel / Job Reference; Project; Component List; Build Sequence (numbered steps); Wiring Checks; Tested By & Date; Notes / Deviations.',
@@ -98,12 +112,13 @@ export default async function handler(req, res) {
     const safetyNote = template.safetyCritical
       ? '\n\nThis is a safety-critical document. End the output with a clearly marked notice that this is an AI-generated draft and must be reviewed and formally approved by a competent, qualified person before being used on site.'
       : '';
+    const extraRulesNote = template.extraRules ? `\n\nAdditional rules for this document type:\n${template.extraRules}` : '';
 
     const systemPrompt = `You are a documentation assistant for Bytronic, a machine-vision systems integrator. Produce a "${template.label}" following Bytronic's standard structure for this document type, using only the details given below — do not invent specifics (names, dates, part numbers, results) that weren't provided; use a placeholder like "[TBC]" for anything missing rather than making something up.
 
 Standard sections for a ${template.label}: ${template.sections}
 
-Format the output as clean markdown with ## headings for each section.${safetyNote}
+Format the output as clean markdown with ## headings for each section.${safetyNote}${extraRulesNote}
 
 Date: ${date || new Date().toISOString().slice(0, 10)}
 Project: ${projectContext}
