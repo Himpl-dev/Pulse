@@ -25,21 +25,31 @@ const inputStyle = { background: TOKENS.surface2, border: `1px solid ${TOKENS.bo
 // per template (server-side) fits better than free-form conversation. No
 // conversation history to persist here (single generate-on-demand call),
 // unlike the HR/PM/Sales advisors.
-export function DocumentationPanel({ accessToken, projects }) {
+export function DocumentationPanel({ accessToken, projects, team }) {
   const [templateId, setTemplateId] = useState(DOCUMENT_TEMPLATES[0].id);
   const [projectId, setProjectId] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [details, setDetails] = useState('');
+  const [siteName, setSiteName] = useState('');
+  const [arrivalTime, setArrivalTime] = useState('');
+  const [departureTime, setDepartureTime] = useState('');
+  const [engineerIds, setEngineerIds] = useState([]);
   const [generatedDoc, setGeneratedDoc] = useState('');
   const [generating, setGenerating] = useState(false);
   const [insertingNotes, setInsertingNotes] = useState(false);
   const [error, setError] = useState('');
 
   const template = DOCUMENT_TEMPLATES.find((t) => t.id === templateId);
+  const isSiteReport = templateId === 'site-report';
+
+  function toggleEngineer(id) {
+    setEngineerIds((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
+  }
 
   async function generate(e) {
     e.preventDefault();
     if (!details.trim() || generating) return;
+    if (isSiteReport && !siteName.trim()) return;
     setGenerating(true);
     setError('');
     setGeneratedDoc('');
@@ -47,7 +57,19 @@ export function DocumentationPanel({ accessToken, projects }) {
       const res = await fetch('/api/documentation', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ templateId, projectId: projectId || null, date, details: details.trim() }),
+        body: JSON.stringify({
+          templateId,
+          projectId: projectId || null,
+          date,
+          details: details.trim(),
+          ...(isSiteReport && {
+            siteName: siteName.trim(),
+            arrivalTime: arrivalTime || null,
+            departureTime: departureTime || null,
+            engineerIds,
+            engineerNames: engineerIds.map((id) => (team || []).find((m) => m.id === id)?.name).filter(Boolean),
+          }),
+        }),
       });
       let data;
       try {
@@ -118,6 +140,53 @@ export function DocumentationPanel({ accessToken, projects }) {
             </select>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg px-3 py-2 text-sm" style={inputStyle} />
           </div>
+
+          {isSiteReport && (
+            <div className="rounded-lg p-3 space-y-2" style={{ background: TOKENS.surface2, border: `1px solid ${TOKENS.border}` }}>
+              <input
+                type="text"
+                value={siteName}
+                onChange={(e) => setSiteName(e.target.value)}
+                placeholder="Site name (e.g. Kelloggs Egypt, Line 4) — required"
+                className="rounded-lg px-3 py-2 text-sm w-full"
+                style={inputStyle}
+              />
+              <div className="flex gap-2">
+                <label className="flex-1 min-w-0">
+                  <span className="text-xs block mb-1" style={{ color: TOKENS.textFaint }}>Arrival</span>
+                  <input type="time" value={arrivalTime} onChange={(e) => setArrivalTime(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full" style={inputStyle} />
+                </label>
+                <label className="flex-1 min-w-0">
+                  <span className="text-xs block mb-1" style={{ color: TOKENS.textFaint }}>Departure</span>
+                  <input type="time" value={departureTime} onChange={(e) => setDepartureTime(e.target.value)} className="rounded-lg px-3 py-2 text-sm w-full" style={inputStyle} />
+                </label>
+              </div>
+              <div>
+                <span className="text-xs" style={{ color: TOKENS.textFaint }}>Engineers on site</span>
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {(team || []).map((m) => {
+                    const active = engineerIds.includes(m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => toggleEngineer(m.id)}
+                        className="px-2.5 py-1 rounded-full text-xs font-medium"
+                        style={{
+                          background: active ? TOKENS.blue : TOKENS.surface,
+                          color: active ? '#0B0D11' : TOKENS.textMuted,
+                          border: `1px solid ${TOKENS.border}`,
+                        }}
+                      >
+                        {m.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-between">
             <span className="text-xs" style={{ color: TOKENS.textFaint }}>Details</span>
             <button
@@ -141,7 +210,7 @@ export function DocumentationPanel({ accessToken, projects }) {
           />
           <button
             type="submit"
-            disabled={generating || !details.trim()}
+            disabled={generating || !details.trim() || (isSiteReport && !siteName.trim())}
             className="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40 flex items-center justify-center gap-1.5 self-start"
             style={{ background: TOKENS.blue, color: '#0B0D11' }}
           >

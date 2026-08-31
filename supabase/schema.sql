@@ -263,3 +263,27 @@ alter table travel_entries enable row level security;
 drop policy if exists "shared travel entries" on travel_entries;
 create policy "shared travel entries" on travel_entries
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+
+-- 18. Site Reports: generated documents from the Documentation agent were
+-- previously throwaway (generate, view, download, gone) — this persists the
+-- "site-report" template specifically, with its Site Details captured as
+-- real columns (not just buried in the generated markdown) so
+-- api/travel-map-refresh.js can read exactly who was on site, where, and
+-- when, without having to parse prose. Open like projects/tasks/logs — this
+-- is operational documentation, not a private conversation.
+create table if not exists site_reports (
+  id uuid primary key,
+  auth_user_id uuid not null references auth.users(id) on delete cascade,
+  project_id text,
+  site_name text not null,
+  report_date date,
+  arrival_time text,
+  departure_time text,
+  engineer_ids jsonb not null default '[]'::jsonb,
+  document text not null,
+  created_at timestamptz not null default now()
+);
+alter table site_reports enable row level security;
+drop policy if exists "authenticated only" on site_reports;
+create policy "authenticated only" on site_reports
+  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');

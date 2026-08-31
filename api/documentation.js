@@ -86,14 +86,18 @@ export default async function handler(req, res) {
   if (!userRes.ok) {
     return res.status(401).json({ error: 'Invalid session' });
   }
+  const caller = await userRes.json();
 
-  const { templateId, projectId, date, details } = req.body || {};
+  const { templateId, projectId, date, details, siteName, arrivalTime, departureTime, engineerIds, engineerNames } = req.body || {};
   const template = TEMPLATES[templateId];
   if (!template) {
     return res.status(400).json({ error: 'Unknown template' });
   }
   if (!details || typeof details !== 'string' || !details.trim()) {
     return res.status(400).json({ error: 'Missing details' });
+  }
+  if (templateId === 'site-report' && (!siteName || !siteName.trim())) {
+    return res.status(400).json({ error: 'Site name is required for a Site Report' });
   }
 
   const db = createClient(supabaseUrl, supabaseAnonKey, {
@@ -113,12 +117,22 @@ export default async function handler(req, res) {
       ? '\n\nThis is a safety-critical document. End the output with a clearly marked notice that this is an AI-generated draft and must be reviewed and formally approved by a competent, qualified person before being used on site.'
       : '';
     const extraRulesNote = template.extraRules ? `\n\nAdditional rules for this document type:\n${template.extraRules}` : '';
+    // Site Report's Site Details fields are captured as real form fields, not
+    // left for the model to dig out of free text — feed them in directly so
+    // they land in the output verbatim instead of "[TBC]".
+    const structuredNote = templateId === 'site-report'
+      ? `\n\nStructured details already captured — use these directly for the Site Details section rather than writing "[TBC]" for them:
+Site Name: ${siteName.trim()}
+Arrival Time: ${arrivalTime || '[TBC]'}
+Departure Time: ${departureTime || '[TBC]'}
+Engineers on Site: ${(engineerNames || []).join(', ') || '[TBC]'}`
+      : '';
 
     const systemPrompt = `You are a documentation assistant for Bytronic, a machine-vision systems integrator. Produce a "${template.label}" following Bytronic's standard structure for this document type, using only the details given below — do not invent specifics (names, dates, part numbers, results) that weren't provided; use a placeholder like "[TBC]" for anything missing rather than making something up.
 
 Standard sections for a ${template.label}: ${template.sections}
 
-Format the output as clean markdown with ## headings for each section.${safetyNote}${extraRulesNote}
+Format the output as clean markdown with ## headings for each section.${safetyNote}${extraRulesNote}${structuredNote}
 
 Date: ${date || new Date().toISOString().slice(0, 10)}
 Project: ${projectContext}
@@ -155,6 +169,25 @@ ${details.trim()}`;
     if (!document) {
       console.error('Anthropic returned no text content', JSON.stringify(data));
       return res.status(502).json({ error: 'Document came back empty — try again' });
+    }
+
+    // Site Reports are the one template that's persisted — structured so the
+    // World Map's inference step can read exactly who was on site, where,
+    // and when, instead of guessing from project text. Best-effort: a save
+    // failure shouldn't lose the document the user is about to see/download.
+    if (templateId === 'site-report') {
+      const { error: insertErr } = await db.from('site_reports').insert({
+        id: crypto.randomUUID(),
+        auth_user_id: caller.id,
+        project_id: projectId || null,
+        site_name: siteName.trim(),
+        report_date: date || null,
+        arrival_time: arrivalTime || null,
+        departure_time: departureTime || null,
+        engineer_ids: Array.isArray(engineerIds) ? engineerIds : [],
+        document,
+      });
+      if (insertErr) console.error('Failed to save site report', insertErr);
     }
 
     return res.status(200).json({ document });

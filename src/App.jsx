@@ -2507,7 +2507,7 @@ export default function App() {
             )}
 
             {activeTab === 'docs' && (
-              <DocumentationPanel accessToken={session.access_token} projects={projects} />
+              <DocumentationPanel accessToken={session.access_token} projects={projects} team={team} />
             )}
 
             {activeTab === 'engineer' && (
