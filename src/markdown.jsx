@@ -13,6 +13,64 @@ export function downloadTextFile(filename, content, mimeType) {
   URL.revokeObjectURL(url);
 }
 
+// Turns the same small markdown subset renderMarkdown() understands
+// (#/##/### headings, **bold**, "- " bullets) into a real downloadable PDF —
+// reusable by any panel with generated markdown output (Travel, and
+// Documentation if it wants this too later). jsPDF is only ever loaded here,
+// dynamically, so nobody pays for it unless this function actually runs.
+export async function downloadMarkdownAsPdf(filename, title, markdownText) {
+  const { jsPDF } = await import('jspdf');
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 48;
+  const maxWidth = pageWidth - margin * 2;
+  const lineHeight = 15;
+  let y = margin;
+
+  function ensureSpace(needed) {
+    if (y + needed > pageHeight - margin) {
+      doc.addPage();
+      y = margin;
+    }
+  }
+
+  function writeWrapped(text, x, width, size, bold) {
+    doc.setFont('helvetica', bold ? 'bold' : 'normal');
+    doc.setFontSize(size);
+    doc.splitTextToSize(text, width).forEach((line) => {
+      ensureSpace(lineHeight);
+      doc.text(line, x, y);
+      y += lineHeight;
+    });
+  }
+
+  if (title) {
+    writeWrapped(title, margin, maxWidth, 16, true);
+    y += 10;
+  }
+
+  for (const raw of markdownText.split('\n')) {
+    const line = raw.trim();
+    if (!line) {
+      y += lineHeight * 0.6;
+      continue;
+    }
+    const heading = line.match(/^(#{1,3})\s+(.*)$/);
+    if (heading) {
+      y += 6;
+      writeWrapped(heading[2].replace(/\*\*/g, ''), margin, maxWidth, heading[1].length === 1 ? 14 : 12, true);
+      y += 4;
+      continue;
+    }
+    const bullet = line.match(/^[-*]\s+(.*)$/);
+    const text = (bullet ? bullet[1] : line).replace(/\*\*(.*?)\*\*/g, '$1');
+    writeWrapped(bullet ? `•  ${text}` : text, margin + (bullet ? 14 : 0), maxWidth - (bullet ? 14 : 0), 11, false);
+  }
+
+  doc.save(filename);
+}
+
 // Lightweight, dependency-free renderer for the small subset of markdown the
 // AI features (digest/summarize/documentation) actually produce: #/##/###
 // headings, **bold**, and (possibly nested) "- " bullet lists.

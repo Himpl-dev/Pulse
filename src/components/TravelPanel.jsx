@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Plane, Loader2, Download, MapPin } from 'lucide-react';
+import { Plane, Loader2, Download, FileDown, MapPin } from 'lucide-react';
 import { TOKENS } from '../theme';
 import { CopyButton } from './AiOutput';
-import { renderMarkdown, downloadTextFile } from '../markdown';
+import { renderMarkdown, downloadTextFile, downloadMarkdownAsPdf } from '../markdown';
 
 const inputStyle = { background: TOKENS.surface2, border: `1px solid ${TOKENS.border}`, color: TOKENS.text };
 
@@ -20,6 +20,7 @@ export function TravelPanel({ accessToken }) {
   const [places, setPlaces] = useState([]);
   const [placeQrCodes, setPlaceQrCodes] = useState({});
   const [generating, setGenerating] = useState(false);
+  const [pdfGenerating, setPdfGenerating] = useState(false);
   const [error, setError] = useState('');
 
   async function generate(e) {
@@ -75,6 +76,19 @@ export function TravelPanel({ accessToken }) {
     downloadTextFile(filename, briefing, 'text/markdown');
   }
 
+  async function downloadPdf() {
+    setPdfGenerating(true);
+    try {
+      const filename = `travel-briefing-${destination.trim().toLowerCase().replace(/\s+/g, '-')}-${departDate || 'trip'}.pdf`;
+      await downloadMarkdownAsPdf(filename, `Trip briefing — ${destination}`, briefing);
+    } catch (err) {
+      console.error('Failed to generate PDF', err);
+      setError('Failed to generate the PDF — try again.');
+    } finally {
+      setPdfGenerating(false);
+    }
+  }
+
   return (
     <div className="space-y-4 max-w-2xl">
       <div className="rounded-xl p-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
@@ -125,6 +139,14 @@ export function TravelPanel({ accessToken }) {
                 style={{ background: TOKENS.surface2, color: TOKENS.textMuted, border: `1px solid ${TOKENS.border}` }}
               >
                 <Download size={13} /> Download
+              </button>
+              <button
+                onClick={downloadPdf}
+                disabled={pdfGenerating}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-60"
+                style={{ background: TOKENS.surface2, color: TOKENS.textMuted, border: `1px solid ${TOKENS.border}` }}
+              >
+                {pdfGenerating ? <Loader2 size={13} className="animate-spin" /> : <FileDown size={13} />} PDF
               </button>
             </div>
           </div>
