@@ -45,12 +45,26 @@ const RECOMMEND_PLACE_TOOL = {
   },
 };
 
+// Node's fetch() has no default timeout — a single slow/hanging external
+// service (this endpoint calls three: Amadeus, frankfurter, NewsAPI) could
+// otherwise silently eat the entire 30s budget before Claude is even
+// called. Every external call below goes through this instead of bare fetch.
+async function fetchWithTimeout(url, options = {}, timeoutMs = 6000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function getAmadeusToken() {
   const clientId = process.env.AMADEUS_API_KEY;
   const clientSecret = process.env.AMADEUS_API_SECRET;
   if (!clientId || !clientSecret) return null;
   try {
-    const res = await fetch('https://test.api.amadeus.com/v1/security/oauth2/token', {
+    const res = await fetchWithTimeout('https://test.api.amadeus.com/v1/security/oauth2/token', {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret }),
@@ -77,7 +91,7 @@ async function searchFlights({ origin, destination, departDate, returnDate }) {
       max: '5',
     });
     if (returnDate) params.set('returnDate', returnDate);
-    const res = await fetch(`https://test.api.amadeus.com/v2/shopping/flight-offers?${params}`, {
+    const res = await fetchWithTimeout(`https://test.api.amadeus.com/v2/shopping/flight-offers?${params}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return null;
@@ -100,7 +114,7 @@ async function getCurrencyRate(currency) {
   const code = currency.trim().toUpperCase();
   if (code === 'GBP') return '1 GBP = 1 GBP (destination currency is GBP)';
   try {
-    const res = await fetch(`https://api.frankfurter.app/latest?from=GBP&to=${encodeURIComponent(code)}`);
+    const res = await fetchWithTimeout(`https://api.frankfurter.app/latest?from=GBP&to=${encodeURIComponent(code)}`);
     if (!res.ok) return null;
     const data = await res.json();
     const rate = data.rates?.[code];
@@ -116,7 +130,7 @@ async function getHeadlines(destination) {
   if (!apiKey || !destination) return null;
   try {
     const params = new URLSearchParams({ q: destination, sortBy: 'publishedAt', pageSize: '5', language: 'en' });
-    const res = await fetch(`https://newsapi.org/v2/everything?${params}`, { headers: { 'X-Api-Key': apiKey } });
+    const res = await fetchWithTimeout(`https://newsapi.org/v2/everything?${params}`, { headers: { 'X-Api-Key': apiKey } });
     if (!res.ok) return null;
     const data = await res.json();
     const headlines = (data.articles || []).slice(0, 5).map((a) => `- ${a.title} (${a.source?.name || 'unknown source'})`);

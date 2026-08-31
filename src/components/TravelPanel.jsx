@@ -44,7 +44,14 @@ export function TravelPanel({ accessToken }) {
           scope: scope.trim(),
         }),
       });
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        // A non-JSON body means the platform itself killed the request
+        // (e.g. a serverless timeout) before our own code could respond.
+        throw new Error('This took too long to generate — try again, maybe with less detail in the scope.');
+      }
       if (!res.ok) throw new Error(data.error || 'Failed to generate briefing');
       setBriefing(data.briefing || '');
       setPlaces(data.places || []);
