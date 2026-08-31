@@ -38,8 +38,8 @@ const LOG_TRAVEL_TOOL = {
 
 const SYSTEM_PROMPT = `You maintain a "who's travelled where" map for an engineering company, drawing on two sources below — there is no single explicit travel log.
 
-1. PROJECTS — indirect, but some task titles are strong evidence rather than a guess. Look at each project's name, subtitle, and customer for a real-world location that is actually mentioned or strongly implied (e.g. "Kelloggs Egypt" implies Egypt; "Amazon WRO6, Poland" implies Poland). Skip any project where you cannot identify a genuine, specific location — do not guess a country just because a customer has an office somewhere. For a project where you're confident of a real location, judge each listed task's own title, per assignee:
-   - Titles about install, installation, commission/commissioning, site survey, service/repair visit, or on-site calibration/wiring at the customer mean that person physically travelled — log these confidently, especially when the task's status is "done" (a completed install/commissioning task is settled fact, not a projection).
+1. PROJECTS — indirect, but some task titles are strong evidence rather than a guess. Only completed tasks are listed below (a task still in progress or backlog isn't confirmed travel yet, so it's left out entirely). Look at each project's name, subtitle, and customer for a real-world location that is actually mentioned or strongly implied (e.g. "Kelloggs Egypt" implies Egypt; "Amazon WRO6, Poland" implies Poland). Skip any project where you cannot identify a genuine, specific location — do not guess a country just because a customer has an office somewhere. For a project where you're confident of a real location, judge each listed (completed) task's own title, per assignee:
+   - Titles about install, installation, commission/commissioning, site survey, service/repair visit, or on-site calibration/wiring at the customer mean that person physically travelled — since the task is already done, log these confidently as settled fact, not a projection.
    - Titles suggesting design, CAD, quoting, procurement, admin, or workshop/in-house build are normally done remotely — skip these, even on a project with a real travel location.
    - Do NOT log someone just because they have some task tied to the project — judge their specific task's title every time. It is normal and expected for most projects to produce log_travel calls for only one or two people, or none at all — never assume the whole assigned list travelled.
    Use that person's own task due date as the approximate startDate/endDate.
@@ -51,14 +51,23 @@ Read between the lines carefully and conservatively for projects; trust site rep
 Use only the real project ids and team member ids given in the context below — never invent one.`;
 
 function buildProjectContext(projects, tasks, team) {
-  return (projects || []).map((p) => {
-    const pTasks = (tasks || []).filter((t) => t.project_id === p.id);
-    const taskLines = pTasks.map((t) => {
-      const assignees = (t.assignees || []).map((id) => team.find((m) => m.id === id)).filter(Boolean);
-      return `    - "${t.title}" [${t.status || 'unknown status'}] (due ${t.due || 'no date'}) — assigned: ${assignees.map((m) => `[${m.id}] ${m.name}`).join(', ') || 'nobody'}`;
-    }).join('\n');
-    return `- [${p.id}] ${p.name}${p.subtitle ? ` — ${p.subtitle}` : ''}, customer: ${CUSTOMERS[p.customer_id] || 'unknown'}${p.deadline ? `, deadline ${p.deadline}` : ''}\n${taskLines || '    (no tasks)'}`;
-  }).join('\n') || '(none)';
+  // Only completed tasks count as evidence (see SYSTEM_PROMPT) — filtering
+  // here too, not just in the prompt wording, keeps the context small
+  // (fewer tokens, faster generation, easier to stay under Vercel's 30s
+  // ceiling) and drops any project down to nothing if it has no completed
+  // work yet, so it doesn't cost Claude anything to skip over.
+  return (projects || [])
+    .map((p) => {
+      const doneTasks = (tasks || []).filter((t) => t.project_id === p.id && t.status === 'done');
+      if (doneTasks.length === 0) return null;
+      const taskLines = doneTasks.map((t) => {
+        const assignees = (t.assignees || []).map((id) => team.find((m) => m.id === id)).filter(Boolean);
+        return `    - "${t.title}" (completed ${t.due || 'no date'}) — assigned: ${assignees.map((m) => `[${m.id}] ${m.name}`).join(', ') || 'nobody'}`;
+      }).join('\n');
+      return `- [${p.id}] ${p.name}${p.subtitle ? ` — ${p.subtitle}` : ''}, customer: ${CUSTOMERS[p.customer_id] || 'unknown'}\n${taskLines}`;
+    })
+    .filter(Boolean)
+    .join('\n') || '(none)';
 }
 
 function buildSiteReportContext(siteReports, team) {
@@ -110,7 +119,11 @@ export default async function handler(req, res) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-5',
+        // Haiku 4.5, not Sonnet like the other advisors here — this is
+        // bounded classification (does this task title mean travel? what
+        // country does this text imply?) rather than open-ended reasoning,
+        // and it needs to run well clear of Vercel's 30s hard ceiling.
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 3000,
         system: `${SYSTEM_PROMPT}\n\n${contextBlock}`,
         tools: [LOG_TRAVEL_TOOL],
