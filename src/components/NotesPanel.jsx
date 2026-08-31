@@ -1,9 +1,14 @@
-import React, { useEffect, useState } from 'react';
-import { StickyNote, Trash2, Plus } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { StickyNote, Trash2, Plus, Mic, Square } from 'lucide-react';
 import { TOKENS } from '../theme';
 import { supabase } from '../supabaseClient';
 
 const inputStyle = { background: TOKENS.surface2, border: `1px solid ${TOKENS.border}`, color: TOKENS.text };
+
+// Chrome/Edge only — Firefox has no implementation, Safari's is
+// inconsistent. Feature-detected once; the mic button just doesn't render
+// when it's missing, rather than showing something that'll error.
+const SpeechRecognitionApi = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
 
 function formatTimestamp(iso) {
   return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -20,6 +25,8 @@ export function NotesPanel({ userId, projects }) {
   const [projectId, setProjectId] = useState('');
   const [content, setContent] = useState('');
   const [error, setError] = useState('');
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef(null);
 
   async function loadNotes() {
     const { data, error: fetchErr } = await supabase.from('user_notes').select('*').order('created_at', { ascending: false });
@@ -34,8 +41,41 @@ export function NotesPanel({ userId, projects }) {
 
   useEffect(() => {
     loadNotes();
+    // Stop any in-progress dictation if the panel unmounts (e.g. switching
+    // tabs mid-recording) rather than leaving the mic listening in the
+    // background.
+    return () => recognitionRef.current?.stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function toggleListening() {
+    if (!SpeechRecognitionApi) return;
+    if (listening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    const recognition = new SpeechRecognitionApi();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.onresult = (e) => {
+      let transcript = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) transcript += e.results[i][0].transcript;
+      }
+      if (transcript.trim()) {
+        setContent((prev) => (prev.trim() ? `${prev.trim()} ${transcript.trim()}` : transcript.trim()));
+      }
+    };
+    recognition.onerror = (e) => {
+      console.error('Speech recognition error', e.error);
+      if (e.error !== 'no-speech') setError('Voice input failed — try again.');
+      setListening(false);
+    };
+    recognition.onend = () => setListening(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
+  }
 
   async function addNote(e) {
     e.preventDefault();
@@ -83,14 +123,35 @@ export function NotesPanel({ userId, projects }) {
             <option value="">No specific project</option>
             {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="Quick note…"
-            rows={3}
-            className="rounded-lg px-3 py-2 text-sm resize-y"
-            style={{ ...inputStyle, minHeight: 70 }}
-          />
+          <div className="relative">
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="Quick note…"
+              rows={3}
+              className="rounded-lg px-3 py-2 text-sm resize-y w-full"
+              style={{ ...inputStyle, minHeight: 70, paddingRight: SpeechRecognitionApi ? 40 : undefined }}
+            />
+            {SpeechRecognitionApi && (
+              <button
+                type="button"
+                onClick={toggleListening}
+                aria-label={listening ? 'Stop voice note' : 'Start voice note'}
+                title={listening ? 'Stop voice note' : 'Start voice note'}
+                className={listening ? 'animate-pulse' : ''}
+                style={{
+                  position: 'absolute', top: 8, right: 8,
+                  background: listening ? TOKENS.coral : TOKENS.surface,
+                  color: listening ? TOKENS.bg : TOKENS.textMuted,
+                  borderRadius: '9999px', width: 26, height: 26,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                {listening ? <Square size={12} /> : <Mic size={13} />}
+              </button>
+            )}
+          </div>
+          {listening && <p className="text-xs" style={{ color: TOKENS.coral }}>Listening…</p>}
           <button
             type="submit"
             disabled={!content.trim()}
