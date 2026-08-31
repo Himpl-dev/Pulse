@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Globe2, Loader2, RefreshCw, Trophy } from 'lucide-react';
+import { Globe2, Loader2, RefreshCw, Trophy, MapPin } from 'lucide-react';
+import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { TOKENS, hexToRgba } from '../theme';
 import { supabase } from '../supabaseClient';
 
 // A handful of spots where Claude's free-text country name won't match
 // Natural Earth's name in the topojson verbatim. Not exhaustive — just the
-// common ones — anything else still displays fine in the leaderboard, it
-// just won't shade a map country until an alias is added here.
+// common ones — anything else still displays fine in the country breakdown,
+// it just won't shade a map country until an alias is added here.
 const NAME_ALIASES = {
   usa: 'united states of america',
   'united states': 'united states of america',
@@ -21,6 +22,11 @@ const NAME_ALIASES = {
   'north korea': 'korea, dem. rep.',
   czechia: 'czech republic',
 };
+
+// Only for the "Top Countries" pie, which has no inherent per-slice color
+// the way a team member does (those use the member's own color, same as
+// their avatar everywhere else in the app).
+const COUNTRY_CHART_COLORS = [TOKENS.teal, TOKENS.blue, TOKENS.violet, TOKENS.amber, TOKENS.coral, TOKENS.magenta];
 
 function normalizeCountryName(name) {
   const lower = (name || '').trim().toLowerCase();
@@ -40,7 +46,7 @@ function formatRange(start, end) {
   return 'date unknown';
 }
 
-const RANK_MEDAL = ['🥇', '🥈', '🥉'];
+const chartTooltipStyle = { background: TOKENS.surface2, border: `1px solid ${TOKENS.border}`, borderRadius: 8, fontSize: 12, color: TOKENS.text };
 
 // The one place in the app deliberately visible to everyone regardless of
 // role — the whole point is team-wide bragging rights, not privacy. Reads a
@@ -133,19 +139,54 @@ export function WorldMapPanel({ accessToken, team, customers }) {
 
   const maxCount = Math.max(1, ...[...countryStats.values()].map((c) => c.entries.length), 0);
 
-  const memberStats = useMemo(() => {
-    const map = new Map();
+  // Most-visited countries, team-wide — top 5 with everything else folded
+  // into "Other" so the pie stays readable instead of a sliver per country.
+  const countryPie = useMemo(() => {
+    const counts = new Map();
     for (const e of entries) {
-      if (!map.has(e.member_id)) map.set(e.member_id, { memberId: e.member_id, countries: new Set(), trips: 0, days: 0 });
-      const s = map.get(e.member_id);
-      s.countries.add(e.country);
-      s.trips += 1;
-      s.days += daysBetween(e.start_date, e.end_date);
+      if (!e.country) continue;
+      counts.set(e.country, (counts.get(e.country) || 0) + 1);
     }
-    return [...map.values()].sort(
-      (a, b) => b.countries.size - a.countries.size || b.trips - a.trips || b.days - a.days
-    );
+    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    const slices = sorted.slice(0, 5).map(([name, value]) => ({ name, value }));
+    const restTotal = sorted.slice(5).reduce((sum, [, v]) => sum + v, 0);
+    if (restTotal > 0) slices.push({ name: 'Other', value: restTotal });
+    return slices;
   }, [entries]);
+
+  // Every team member, including anyone with zero trips so far — the point
+  // is for people at the bottom to see exactly how close they are to
+  // closing the gap, not to only celebrate whoever's already ahead.
+  const memberStats = useMemo(() => {
+    const counts = new Map();
+    for (const e of entries) {
+      if (!counts.has(e.member_id)) counts.set(e.member_id, { trips: 0, countries: new Set(), days: 0 });
+      const c = counts.get(e.member_id);
+      c.trips += 1;
+      c.countries.add(e.country);
+      c.days += daysBetween(e.start_date, e.end_date);
+    }
+    const rows = (team || []).map((m) => {
+      const c = counts.get(m.id);
+      return { memberId: m.id, name: m.name, color: m.color, trips: c?.trips || 0, countryCount: c?.countries.size || 0, days: c?.days || 0 };
+    });
+    // Covers entries whose member no longer has a team_members row.
+    for (const [memberId, c] of counts) {
+      if (!(team || []).some((m) => m.id === memberId)) {
+        rows.push({ memberId, name: memberById[memberId]?.name || 'Former team member', color: TOKENS.textFaint, trips: c.trips, countryCount: c.countries.size, days: c.days });
+      }
+    }
+    return rows.sort((a, b) => b.trips - a.trips || b.countryCount - a.countryCount);
+  }, [entries, team, memberById]);
+
+  const totalTrips = memberStats.reduce((sum, m) => sum + m.trips, 0);
+  const leaderTrips = memberStats[0]?.trips || 0;
+  const leaderName = memberStats[0]?.name;
+
+  const teamSharePie = useMemo(
+    () => memberStats.filter((m) => m.trips > 0).map((m) => ({ name: m.name, value: m.trips, color: m.color })),
+    [memberStats]
+  );
 
   return (
     <div className="space-y-4">
@@ -255,32 +296,83 @@ export function WorldMapPanel({ accessToken, team, customers }) {
           )}
         </div>
 
-        <div className="rounded-xl p-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
-          <h3 className="font-display font-semibold text-sm mb-3 flex items-center gap-2">
-            <Trophy size={15} style={{ color: TOKENS.amber }} /> Leaderboard
-          </h3>
-          {memberStats.length === 0 ? (
-            <p className="text-xs" style={{ color: TOKENS.textFaint }}>No travel logged yet.</p>
-          ) : (
-            <div className="space-y-2.5">
-              {memberStats.map((s, i) => (
-                <div key={s.memberId} className="flex items-start gap-2.5">
-                  <span className="text-sm w-5 shrink-0 text-center" style={{ color: TOKENS.textFaint }}>
-                    {RANK_MEDAL[i] || i + 1}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate" style={{ color: TOKENS.text }}>
-                      {memberById[s.memberId]?.name || 'Unknown'}
-                    </p>
-                    <p className="text-xs" style={{ color: TOKENS.textFaint }}>
-                      {s.countries.size} {s.countries.size === 1 ? 'country' : 'countries'} · {s.trips} {s.trips === 1 ? 'trip' : 'trips'}
-                      {s.days > 0 ? ` · ~${s.days}d` : ''}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="space-y-4">
+          <div className="rounded-xl p-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
+            <h3 className="font-display font-semibold text-sm mb-2 flex items-center gap-2">
+              <MapPin size={15} style={{ color: TOKENS.teal }} /> Top Countries
+            </h3>
+            {countryPie.length === 0 ? (
+              <p className="text-xs" style={{ color: TOKENS.textFaint }}>Nothing to show yet.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={190}>
+                <PieChart>
+                  <Pie
+                    data={countryPie}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={38}
+                    outerRadius={62}
+                    paddingAngle={2}
+                    label={({ percent }) => `${Math.round(percent * 100)}%`}
+                    labelLine={false}
+                  >
+                    {countryPie.map((slice, i) => (
+                      <Cell key={slice.name} fill={slice.name === 'Other' ? 'var(--token-surface2)' : COUNTRY_CHART_COLORS[i % COUNTRY_CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={chartTooltipStyle} formatter={(value) => [`${value} visit${value === 1 ? '' : 's'}`, undefined]} />
+                  <Legend wrapperStyle={{ fontSize: 11, color: TOKENS.textMuted }} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          <div className="rounded-xl p-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
+            <h3 className="font-display font-semibold text-sm mb-2 flex items-center gap-2">
+              <Trophy size={15} style={{ color: TOKENS.amber }} /> Team Standings
+            </h3>
+
+            {teamSharePie.length > 0 && (
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie data={teamSharePie} dataKey="value" nameKey="name" innerRadius={34} outerRadius={56} paddingAngle={2}>
+                    {teamSharePie.map((slice) => (
+                      <Cell key={slice.name} fill={slice.color || TOKENS.blue} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={chartTooltipStyle} formatter={(value, name) => [`${value} trip${value === 1 ? '' : 's'}`, name]} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+
+            {memberStats.length === 0 ? (
+              <p className="text-xs" style={{ color: TOKENS.textFaint }}>No team members yet.</p>
+            ) : (
+              <div className="space-y-3 mt-1">
+                {memberStats.map((m, i) => {
+                  const share = totalTrips > 0 ? Math.round((m.trips / totalTrips) * 100) : 0;
+                  const barWidth = leaderTrips > 0 ? Math.max(4, Math.round((m.trips / leaderTrips) * 100)) : 0;
+                  const catchUp = leaderTrips === 0
+                    ? 'Be the first to log a trip!'
+                    : m.trips >= leaderTrips
+                    ? (i === 0 ? '🏆 Leading the pack' : '🏆 Tied for the lead')
+                    : `${leaderTrips - m.trips} more trip${leaderTrips - m.trips === 1 ? '' : 's'} to catch ${leaderName}`;
+                  return (
+                    <div key={m.memberId}>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="font-medium truncate" style={{ color: TOKENS.text }}>{m.name}</span>
+                        <span style={{ color: TOKENS.textFaint }}>{share}%</span>
+                      </div>
+                      <div className="h-1.5 rounded-full overflow-hidden mb-1" style={{ background: TOKENS.surface2 }}>
+                        <div className="h-full rounded-full" style={{ width: `${barWidth}%`, background: m.color || TOKENS.blue }} />
+                      </div>
+                      <p className="text-xs" style={{ color: TOKENS.textFaint }}>{catchUp}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
