@@ -139,18 +139,24 @@ export function WorldMapPanel({ accessToken, team, customers }) {
     return map;
   }, [entries]);
 
-  const maxCount = Math.max(1, ...[...countryStats.values()].map((c) => c.entries.length), 0);
+  // Single source of truth for country ranking, shared by the map fill and
+  // the Top Countries pie so a country's color always means the same thing
+  // in both places, not two independently-computed rankings.
+  const countryRanking = useMemo(
+    () => [...countryStats.entries()].sort((a, b) => b[1].entries.length - a[1].entries.length),
+    [countryStats]
+  );
+  const countryColorByKey = useMemo(
+    () => new Map(countryRanking.map(([key], i) => [key, COUNTRY_CHART_COLORS[i % COUNTRY_CHART_COLORS.length]])),
+    [countryRanking]
+  );
 
   // Most-visited countries, team-wide — just the top 5, no catch-all
   // "Other" bucket lumping in everything past that.
-  const countryPie = useMemo(() => {
-    const counts = new Map();
-    for (const e of entries) {
-      if (!e.country) continue;
-      counts.set(e.country, (counts.get(e.country) || 0) + 1);
-    }
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, value]) => ({ name, value }));
-  }, [entries]);
+  const countryPie = useMemo(
+    () => countryRanking.slice(0, 5).map(([key, stat]) => ({ key, name: stat.displayName, value: stat.entries.length })),
+    [countryRanking]
+  );
 
   // Every team member, in roster order (not sorted by activity) — plain
   // stats rather than a ranking, per how this is meant to feel.
@@ -235,10 +241,10 @@ export function WorldMapPanel({ accessToken, team, customers }) {
                   geographies.map((geo) => {
                     const key = (geo.properties?.name || '').toLowerCase();
                     const stat = countryStats.get(key);
-                    const count = stat?.entries.length || 0;
-                    const fill = count > 0
-                      ? hexToRgba(TOKENS.teal, 0.25 + 0.6 * (count / maxCount))
-                      : 'var(--token-surface2)';
+                    // Each visited country gets its own distinct color (same
+                    // palette, same ranking, as the Top Countries pie) rather
+                    // than one hue shaded by visit count.
+                    const fill = stat ? (countryColorByKey.get(key) || TOKENS.teal) : 'var(--token-surface2)';
                     return (
                       <mapLibs.Geography
                         key={geo.rsmKey}
@@ -252,8 +258,8 @@ export function WorldMapPanel({ accessToken, team, customers }) {
                         onMouseLeave={() => setHovered(null)}
                         style={{
                           default: { fill, stroke: 'var(--token-border)', strokeWidth: 0.5, outline: 'none' },
-                          hover: { fill: stat ? TOKENS.teal : fill, stroke: 'var(--token-border)', strokeWidth: 0.5, outline: 'none', cursor: stat ? 'pointer' : 'default' },
-                          pressed: { fill: TOKENS.teal, outline: 'none' },
+                          hover: { fill, stroke: 'var(--token-border)', strokeWidth: stat ? 1.5 : 0.5, outline: 'none', cursor: stat ? 'pointer' : 'default' },
+                          pressed: { fill, outline: 'none' },
                         }}
                       />
                     );
@@ -314,8 +320,8 @@ export function WorldMapPanel({ accessToken, team, customers }) {
                     label={({ percent }) => `${Math.round(percent * 100)}%`}
                     labelLine={false}
                   >
-                    {countryPie.map((slice, i) => (
-                      <Cell key={slice.name} fill={COUNTRY_CHART_COLORS[i % COUNTRY_CHART_COLORS.length]} />
+                    {countryPie.map((slice) => (
+                      <Cell key={slice.key} fill={countryColorByKey.get(slice.key) || TOKENS.teal} />
                     ))}
                   </Pie>
                   <Tooltip contentStyle={chartTooltipStyle} formatter={(value) => [`${value} visit${value === 1 ? '' : 's'}`, undefined]} />
