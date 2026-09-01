@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Globe2, Loader2, RefreshCw, Trophy, MapPin } from 'lucide-react';
+import { Globe2, Loader2, RefreshCw, MapPin, Clock } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { TOKENS, hexToRgba } from '../theme';
 import { supabase } from '../supabaseClient';
@@ -36,7 +36,9 @@ function normalizeCountryName(name) {
 function daysBetween(start, end) {
   if (!start || !end) return 0;
   const diff = Math.round((new Date(end) - new Date(start)) / 86400000);
-  return diff > 0 ? diff + 1 : 0;
+  // Inclusive of both ends — a single-day visit (start === end) is 1 day,
+  // not 0.
+  return diff >= 0 ? diff + 1 : 0;
 }
 
 function formatRange(start, end) {
@@ -154,39 +156,39 @@ export function WorldMapPanel({ accessToken, team, customers }) {
     return slices;
   }, [entries]);
 
-  // Every team member, including anyone with zero trips so far — the point
-  // is for people at the bottom to see exactly how close they are to
-  // closing the gap, not to only celebrate whoever's already ahead.
+  // Every team member, in roster order (not sorted by activity) — plain
+  // stats rather than a ranking, per how this is meant to feel.
   const memberStats = useMemo(() => {
     const counts = new Map();
     for (const e of entries) {
-      if (!counts.has(e.member_id)) counts.set(e.member_id, { trips: 0, countries: new Set(), days: 0 });
-      const c = counts.get(e.member_id);
-      c.trips += 1;
-      c.countries.add(e.country);
-      c.days += daysBetween(e.start_date, e.end_date);
+      if (!counts.has(e.member_id)) counts.set(e.member_id, { days: 0 });
+      counts.get(e.member_id).days += daysBetween(e.start_date, e.end_date);
     }
-    const rows = (team || []).map((m) => {
-      const c = counts.get(m.id);
-      return { memberId: m.id, name: m.name, color: m.color, trips: c?.trips || 0, countryCount: c?.countries.size || 0, days: c?.days || 0 };
-    });
+    const rows = (team || []).map((m) => ({ memberId: m.id, name: m.name, days: counts.get(m.id)?.days || 0 }));
     // Covers entries whose member no longer has a team_members row.
     for (const [memberId, c] of counts) {
       if (!(team || []).some((m) => m.id === memberId)) {
-        rows.push({ memberId, name: memberById[memberId]?.name || 'Former team member', color: TOKENS.textFaint, trips: c.trips, countryCount: c.countries.size, days: c.days });
+        rows.push({ memberId, name: memberById[memberId]?.name || 'Former team member', days: c.days });
       }
     }
-    return rows.sort((a, b) => b.trips - a.trips || b.countryCount - a.countryCount);
+    return rows;
   }, [entries, team, memberById]);
 
-  const totalTrips = memberStats.reduce((sum, m) => sum + m.trips, 0);
-  const leaderTrips = memberStats[0]?.trips || 0;
-  const leaderName = memberStats[0]?.name;
+  const totalDays = memberStats.reduce((sum, m) => sum + m.days, 0);
 
-  const teamSharePie = useMemo(
-    () => memberStats.filter((m) => m.trips > 0).map((m) => ({ name: m.name, value: m.trips, color: m.color })),
-    [memberStats]
-  );
+  // Non-UK countries visited, per individual — the UK is home turf for a
+  // UK-based company, so it's excluded here to keep this focused on actual
+  // travel rather than everyday domestic work.
+  const memberCountryBreakdown = useMemo(() => {
+    const map = new Map();
+    for (const e of entries) {
+      if (!e.country || normalizeCountryName(e.country) === 'united kingdom') continue;
+      if (!map.has(e.member_id)) map.set(e.member_id, new Map());
+      const countries = map.get(e.member_id);
+      countries.set(e.country, (countries.get(e.country) || 0) + 1);
+    }
+    return map;
+  }, [entries]);
 
   return (
     <div className="space-y-4">
@@ -328,45 +330,32 @@ export function WorldMapPanel({ accessToken, team, customers }) {
           </div>
 
           <div className="rounded-xl p-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
-            <h3 className="font-display font-semibold text-sm mb-2 flex items-center gap-2">
-              <Trophy size={15} style={{ color: TOKENS.amber }} /> Team Standings
+            <h3 className="font-display font-semibold text-sm mb-1 flex items-center gap-2">
+              <Clock size={15} style={{ color: TOKENS.textMuted }} /> Travel Stats
             </h3>
-
-            {teamSharePie.length > 0 && (
-              <ResponsiveContainer width="100%" height={160}>
-                <PieChart>
-                  <Pie data={teamSharePie} dataKey="value" nameKey="name" innerRadius={34} outerRadius={56} paddingAngle={2}>
-                    {teamSharePie.map((slice) => (
-                      <Cell key={slice.name} fill={slice.color || TOKENS.blue} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={chartTooltipStyle} formatter={(value, name) => [`${value} trip${value === 1 ? '' : 's'}`, name]} />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
+            <p className="text-xs mb-3" style={{ color: TOKENS.textFaint }}>
+              {totalDays} day{totalDays === 1 ? '' : 's'} away, team-wide.
+            </p>
 
             {memberStats.length === 0 ? (
               <p className="text-xs" style={{ color: TOKENS.textFaint }}>No team members yet.</p>
             ) : (
-              <div className="space-y-3 mt-1">
-                {memberStats.map((m, i) => {
-                  const share = totalTrips > 0 ? Math.round((m.trips / totalTrips) * 100) : 0;
-                  const barWidth = leaderTrips > 0 ? Math.max(4, Math.round((m.trips / leaderTrips) * 100)) : 0;
-                  const catchUp = leaderTrips === 0
-                    ? 'Be the first to log a trip!'
-                    : m.trips >= leaderTrips
-                    ? (i === 0 ? '🏆 Leading the pack' : '🏆 Tied for the lead')
-                    : `${leaderTrips - m.trips} more trip${leaderTrips - m.trips === 1 ? '' : 's'} to catch ${leaderName}`;
+              <div className="space-y-3">
+                {memberStats.map((m) => {
+                  const countries = memberCountryBreakdown.get(m.memberId);
+                  const countryText = countries && countries.size > 0
+                    ? [...countries.entries()]
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([country, count]) => (count > 1 ? `${country} ×${count}` : country))
+                        .join(', ')
+                    : 'No travel outside the UK yet';
                   return (
-                    <div key={m.memberId}>
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="font-medium truncate" style={{ color: TOKENS.text }}>{m.name}</span>
-                        <span style={{ color: TOKENS.textFaint }}>{share}%</span>
+                    <div key={m.memberId} className="flex items-start justify-between gap-3 text-xs">
+                      <div className="min-w-0">
+                        <p className="font-medium" style={{ color: TOKENS.text }}>{m.name}</p>
+                        <p style={{ color: TOKENS.textFaint }}>{countryText}</p>
                       </div>
-                      <div className="h-1.5 rounded-full overflow-hidden mb-1" style={{ background: TOKENS.surface2 }}>
-                        <div className="h-full rounded-full" style={{ width: `${barWidth}%`, background: m.color || TOKENS.blue }} />
-                      </div>
-                      <p className="text-xs" style={{ color: TOKENS.textFaint }}>{catchUp}</p>
+                      <span className="shrink-0" style={{ color: TOKENS.textMuted }}>{m.days} day{m.days === 1 ? '' : 's'}</span>
                     </div>
                   );
                 })}
