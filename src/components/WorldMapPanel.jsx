@@ -141,19 +141,15 @@ export function WorldMapPanel({ accessToken, team, customers }) {
 
   const maxCount = Math.max(1, ...[...countryStats.values()].map((c) => c.entries.length), 0);
 
-  // Most-visited countries, team-wide — top 5 with everything else folded
-  // into "Other" so the pie stays readable instead of a sliver per country.
+  // Most-visited countries, team-wide — just the top 5, no catch-all
+  // "Other" bucket lumping in everything past that.
   const countryPie = useMemo(() => {
     const counts = new Map();
     for (const e of entries) {
       if (!e.country) continue;
       counts.set(e.country, (counts.get(e.country) || 0) + 1);
     }
-    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-    const slices = sorted.slice(0, 5).map(([name, value]) => ({ name, value }));
-    const restTotal = sorted.slice(5).reduce((sum, [, v]) => sum + v, 0);
-    if (restTotal > 0) slices.push({ name: 'Other', value: restTotal });
-    return slices;
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, value]) => ({ name, value }));
   }, [entries]);
 
   // Every team member, in roster order (not sorted by activity) — plain
@@ -319,7 +315,7 @@ export function WorldMapPanel({ accessToken, team, customers }) {
                     labelLine={false}
                   >
                     {countryPie.map((slice, i) => (
-                      <Cell key={slice.name} fill={slice.name === 'Other' ? 'var(--token-surface2)' : COUNTRY_CHART_COLORS[i % COUNTRY_CHART_COLORS.length]} />
+                      <Cell key={slice.name} fill={COUNTRY_CHART_COLORS[i % COUNTRY_CHART_COLORS.length]} />
                     ))}
                   </Pie>
                   <Tooltip contentStyle={chartTooltipStyle} formatter={(value) => [`${value} visit${value === 1 ? '' : 's'}`, undefined]} />
