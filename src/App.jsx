@@ -2149,7 +2149,20 @@ export default function App() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
                   {memberStats.map((m, i) => (
-                    <div key={m.id} className="rounded-xl p-4 stagger-item" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}`, animationDelay: `${i * 30}ms` }}>
+                    // stagger-item's fadeIn animation leaves a transform on the card,
+                    // which makes it a stacking context — so an open task popover
+                    // gets painted under the next card unless we lift this card's
+                    // z-index above its siblings while a popover is open.
+                    <div
+                      key={m.id}
+                      className="rounded-xl p-4 stagger-item relative"
+                      style={{
+                        background: TOKENS.surface,
+                        border: `1px solid ${TOKENS.border}`,
+                        animationDelay: `${i * 30}ms`,
+                        zIndex: openMemberStat?.startsWith(`${m.id}-`) ? 30 : undefined,
+                      }}
+                    >
                       <div className="flex items-center gap-3 mb-3">
                         <div className="w-11 h-11 rounded-full flex items-center justify-center font-display font-semibold text-sm flex-shrink-0" style={{ background: hexToRgba(m.color, 0.18), color: m.color, border: `1px solid ${hexToRgba(m.color, 0.4)}` }}>
                           {m.initials}
