@@ -30,7 +30,7 @@ import { ScannerPanel } from './components/ScannerPanel';
 import { WorldMapPanel } from './components/WorldMapPanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { CopyButton } from './components/AiOutput';
-import { renderMarkdown, downloadTextFile } from './markdown';
+import { renderMarkdown, downloadTextFile, markdownToHtml, markdownToPlainText } from './markdown';
 
 /* ---------------------------------- tokens --------------------------------- */
 
@@ -1150,7 +1150,7 @@ function LogsPanel({ team, logs, onAdd, onDelete, accessToken }) {
             <span className="text-xs font-medium uppercase tracking-wider flex items-center gap-1.5" style={{ color: TOKENS.violet }}>
               <Sparkles size={12} /> Summary
             </span>
-            <CopyButton text={summary} label="Copy" />
+            <CopyButton text={markdownToPlainText(summary)} html={markdownToHtml(summary)} label="Copy" />
           </div>
           <div className="text-sm leading-relaxed" style={{ color: TOKENS.text }}>{renderMarkdown(summary)}</div>
         </div>
@@ -1251,7 +1251,7 @@ function WeeklyDigestPanel({ projects, tasks, team, comments, logs, accessToken,
           <Sparkles size={15} style={{ color: TOKENS.violet }} /> Weekly digest
         </h2>
         <div className="flex items-center gap-2">
-          {digest && <CopyButton text={digest} label="Copy" />}
+          {digest && <CopyButton text={markdownToPlainText(digest)} html={markdownToHtml(digest)} label="Copy" />}
           <button
             type="button"
             onClick={generate}

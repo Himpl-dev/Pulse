@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Plane, Loader2, Download, FileDown, MapPin } from 'lucide-react';
 import { TOKENS } from '../theme';
 import { CopyButton } from './AiOutput';
-import { renderMarkdown, downloadTextFile, downloadMarkdownAsPdf } from '../markdown';
+import { renderMarkdown, downloadTextFile, downloadMarkdownAsPdf, markdownToHtml, markdownToPlainText } from '../markdown';
 
 const inputStyle = { background: TOKENS.surface2, border: `1px solid ${TOKENS.border}`, color: TOKENS.text };
 
@@ -132,7 +132,7 @@ export function TravelPanel({ accessToken }) {
           <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
             <h3 className="font-display font-semibold text-sm">Trip briefing — {destination}</h3>
             <div className="flex items-center gap-2">
-              <CopyButton text={briefing} label="Copy" />
+              <CopyButton text={markdownToPlainText(briefing)} html={markdownToHtml(briefing)} label="Copy" />
               <button
                 onClick={download}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium"

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { FileText, Loader2, Download, StickyNote } from 'lucide-react';
 import { TOKENS } from '../theme';
 import { CopyButton } from './AiOutput';
-import { renderMarkdown, downloadTextFile } from '../markdown';
+import { renderMarkdown, downloadMarkdownAsPdf, markdownToHtml, markdownToPlainText } from '../markdown';
 import { supabase } from '../supabaseClient';
 
 // Keep ids in sync with the TEMPLATES map in api/documentation.js — each id
@@ -36,6 +36,7 @@ export function DocumentationPanel({ accessToken, projects, team }) {
   const [engineerIds, setEngineerIds] = useState([]);
   const [generatedDoc, setGeneratedDoc] = useState('');
   const [generating, setGenerating] = useState(false);
+  const [pdfGenerating, setPdfGenerating] = useState(false);
   const [insertingNotes, setInsertingNotes] = useState(false);
   const [error, setError] = useState('');
 
@@ -88,9 +89,20 @@ export function DocumentationPanel({ accessToken, projects, team }) {
     }
   }
 
-  function download() {
-    const filename = `${template.label.replace(/[^\w]+/g, '-').toLowerCase()}-${date}.md`;
-    downloadTextFile(filename, generatedDoc, 'text/markdown');
+  async function download() {
+    setPdfGenerating(true);
+    setError('');
+    try {
+      const slug = template.label.replace(/[^\w]+/g, '-').toLowerCase();
+      const filename = `${slug}-${date}.pdf`;
+      const title = isSiteReport && siteName.trim() ? `${template.label} — ${siteName.trim()}` : template.label;
+      await downloadMarkdownAsPdf(filename, title, generatedDoc);
+    } catch (err) {
+      console.error('Failed to generate PDF', err);
+      setError('Failed to generate the PDF — try again.');
+    } finally {
+      setPdfGenerating(false);
+    }
   }
 
   // Pulls in this project's notes from the Notes tab — RLS already scopes
@@ -225,13 +237,14 @@ export function DocumentationPanel({ accessToken, projects, team }) {
           <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
             <h3 className="font-display font-semibold text-sm">{template.label}</h3>
             <div className="flex items-center gap-2">
-              <CopyButton text={generatedDoc} label="Copy" />
+              <CopyButton text={markdownToPlainText(generatedDoc)} html={markdownToHtml(generatedDoc)} label="Copy" />
               <button
                 onClick={download}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium"
+                disabled={pdfGenerating}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-60"
                 style={{ background: TOKENS.surface2, color: TOKENS.textMuted, border: `1px solid ${TOKENS.border}` }}
               >
-                <Download size={13} /> Download
+                {pdfGenerating ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} Download PDF
               </button>
             </div>
           </div>
