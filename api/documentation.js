@@ -41,17 +41,25 @@ const TEMPLATES = {
   },
   'site-report': {
     label: 'Site Report',
-    sections: '1. Site Details (Site Name; Date; Arrival Time; Departure Time; Engineers on Site); 2. Work Carried Out; 3. Issues / Observations; 4. Time Lost (if applicable); 5. Outstanding Actions; 6. Summary.',
+    sections: '1. Site Details; 2. Work Carried Out; 3. Issues / Observations; 4. Time Lost (if applicable); 5. Outstanding Actions; 6. Summary.',
     // Stricter than the other templates — this one has an explicit house
     // style (concise, bullet-only, no narrative) rather than free-form
     // prose sections, per the rules given for this document type.
-    extraRules: `- Under "Work Carried Out": list only what was physically done — no assumptions, no narrative.
+    extraRules: `- "Site Details" must be the first section, and must contain exactly these five lines, in this exact order, one per line and nothing else:
+  Site Name: <value>
+  Date: <value>
+  Arrival Time: <value>
+  Departure Time: <value>
+  Engineers on Site: <value>
+  Do not add, remove, reorder, or rename these lines. Do not use bullets for them.
+- The engineer names appear only on the "Engineers on Site" line. Never repeat them anywhere else — no signature block, no "Engineer:" line, no footer.
+- Do not mention any project deadline, due date, or start date anywhere in the report.
+- Under "Work Carried Out": list only what was physically done — no assumptions, no narrative.
 - Under "Issues / Observations": list any faults, delays, or risks identified.
 - Under "Time Lost": clearly state the cause, and estimate duration only if one was given. Omit this section entirely if nothing was lost.
 - Under "Outstanding Actions": list what still needs to be completed, and who's responsible if known.
 - "Summary" is 1–2 sentences maximum, high-level status only — not a recap of the other sections.
-- Keep everything concise and factual — every section except Summary is bullet points only, never paragraphs.
-- Always include a clear "Site Name" line — it's how this report can later be matched to a location.`,
+- Keep everything concise and factual — every section except Summary and Site Details is bullet points only, never paragraphs.`,
   },
   'panel-route-card': {
     label: 'Electrical Panel Build Route Card',
@@ -109,7 +117,10 @@ export default async function handler(req, res) {
     if (projectId) {
       const { data: project } = await db.from('projects').select('name, subtitle, deadline, customer_id').eq('id', projectId).maybeSingle();
       if (project) {
-        projectContext = `${project.name}${project.subtitle ? ` — ${project.subtitle}` : ''}, customer: ${CUSTOMERS[project.customer_id] || 'unknown'}${project.deadline ? `, deadline ${project.deadline}` : ''}`;
+        // Site Reports must never surface a project deadline (see extraRules) —
+        // leave it out of the context entirely for that template.
+        const showDeadline = templateId !== 'site-report' && project.deadline;
+        projectContext = `${project.name}${project.subtitle ? ` — ${project.subtitle}` : ''}, customer: ${CUSTOMERS[project.customer_id] || 'unknown'}${showDeadline ? `, deadline ${project.deadline}` : ''}`;
       }
     }
 
@@ -121,8 +132,9 @@ export default async function handler(req, res) {
     // left for the model to dig out of free text — feed them in directly so
     // they land in the output verbatim instead of "[TBC]".
     const structuredNote = templateId === 'site-report'
-      ? `\n\nStructured details already captured — use these directly for the Site Details section rather than writing "[TBC]" for them:
+      ? `\n\nStructured details already captured — copy these verbatim into the "Site Details" section, in this exact order, one per line, and do not write "[TBC]" for any of them:
 Site Name: ${siteName.trim()}
+Date: ${date || new Date().toISOString().slice(0, 10)}
 Arrival Time: ${arrivalTime || '[TBC]'}
 Departure Time: ${departureTime || '[TBC]'}
 Engineers on Site: ${(engineerNames || []).join(', ') || '[TBC]'}`
