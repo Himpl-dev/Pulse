@@ -19,7 +19,16 @@ export function AdminPanel({ accessToken }) {
       setError('');
       try {
         const res = await fetch('/api/admin-roles', { headers: { authorization: `Bearer ${accessToken}` } });
-        const data = await res.json();
+        let data;
+        try {
+          data = await res.json();
+        } catch {
+          // A non-JSON body means this request never reached a real
+          // serverless function — e.g. running the plain Vite dev server
+          // locally, which doesn't serve /api/* at all (only a Vercel
+          // deploy, or `vercel dev`, does).
+          throw new Error('Admin needs the app to be running on Vercel — this page can\'t load users from a plain local dev server.');
+        }
         if (!res.ok) throw new Error(data.error || 'Failed to load users');
         if (!cancelled) setUsers(data.users || []);
       } catch (err) {
