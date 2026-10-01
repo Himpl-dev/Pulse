@@ -287,3 +287,12 @@ alter table site_reports enable row level security;
 drop policy if exists "authenticated only" on site_reports;
 create policy "authenticated only" on site_reports
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+
+-- 19. Logs locked in the app for now (2026-10-01) — see LOGS_LOCKED in
+--    src/App.jsx. Raised as an HR/data-handling concern: entries have no
+--    author, the person they're about can never see them, and note text
+--    was being sent to a third-party AI to summarize. Clearing what's there
+--    since nobody could consent to or review it while the feature was live.
+--    Run this once in the SQL Editor — the table and its RLS are left in
+--    place so the feature can be reinstated properly later.
+delete from logs;

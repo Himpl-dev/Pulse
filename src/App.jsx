@@ -102,6 +102,16 @@ const TABS = [
 // real security boundary is Supabase RLS, not this list).
 const MANAGEMENT_ONLY_TABS = new Set(['logs', 'admin']);
 
+// Logs is pulled from the app entirely for now (2026-10-01) — raised as an
+// HR/data-handling concern (no authorship on entries, subjects can't see
+// their own notes, note text gets sent to a third-party AI for summarizing)
+// that needs a real process before this is usable, not just a code fix.
+// Table, RLS, and all the panel code are left in place so it can come back
+// later — this is the single switch to flip. Existing entries were cleared
+// in Supabase (see schema.sql's final block) since nobody could consent to
+// or review them while the feature was live.
+const LOGS_LOCKED = true;
+
 // The AI agent tabs — grouped into one "Agents" dropdown in the nav bar
 // (there are now enough of these that listing each as its own pill made the
 // header too crowded), but still individually routable (?tab=hr etc.) and
@@ -459,6 +469,15 @@ function ManagementOnlyNotice({ feature }) {
   return (
     <div className="rounded-xl p-10 text-center" style={{ background: TOKENS.surface, border: `1px dashed ${TOKENS.border}` }}>
       <p className="text-sm" style={{ color: TOKENS.textMuted }}>{feature} is only available to management.</p>
+    </div>
+  );
+}
+
+function LockedFeatureNotice({ feature }) {
+  return (
+    <div className="rounded-xl p-10 text-center" style={{ background: TOKENS.surface, border: `1px dashed ${TOKENS.border}` }}>
+      <p className="text-sm mb-1" style={{ color: TOKENS.textMuted }}>{feature} is turned off for now.</p>
+      <p className="text-xs" style={{ color: TOKENS.textFaint }}>It may come back for management at a later date.</p>
     </div>
   );
 }
@@ -1370,7 +1389,7 @@ export default function App() {
   // (see its call site) so a direct ?tab=logs link isn't bounced before
   // isManagement has finished loading — this filtered list only controls
   // what's offered in nav/palette.
-  const visibleTabs = TABS.filter((t) => !MANAGEMENT_ONLY_TABS.has(t.id) || isManagement);
+  const visibleTabs = TABS.filter((t) => (t.id !== 'logs' || !LOGS_LOCKED) && (!MANAGEMENT_ONLY_TABS.has(t.id) || isManagement));
 
   // Cmd/Ctrl+K opens the command palette from anywhere, including while
   // focused in another input — that's the whole point of the shortcut.
@@ -2532,7 +2551,9 @@ export default function App() {
             )}
 
             {activeTab === 'logs' && (
-              isManagement ? (
+              LOGS_LOCKED ? (
+                <LockedFeatureNotice feature="Logs" />
+              ) : isManagement ? (
                 <LogsPanel team={team} logs={logs} onAdd={addLog} onDelete={deleteLog} accessToken={session.access_token} />
               ) : (
                 <ManagementOnlyNotice feature="Logs" />
