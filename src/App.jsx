@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
   NotebookPen, LogOut, Sparkles, Loader2, Search, MessageSquare, Download, Repeat,
   Sun, Moon, ShieldCheck, LifeBuoy, Compass, Handshake, FileText, Wrench, Plane, StickyNote,
-  Bot, ChevronDown, ScanLine, Globe2, Grid3x3,
+  Bot, ChevronDown, ScanLine, Globe2, Grid3x3, Layers,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -112,12 +112,18 @@ const MANAGEMENT_ONLY_TABS = new Set(['logs', 'admin']);
 // or review them while the feature was live.
 const LOGS_LOCKED = true;
 
-// The AI agent tabs — grouped into one "Agents" dropdown in the nav bar
-// (there are now enough of these that listing each as its own pill made the
-// header too crowded), but still individually routable (?tab=hr etc.) and
-// still individually listed in the command palette — this only changes how
-// the nav bar renders them, not the underlying tab list.
-const AGENT_TAB_IDS = new Set(['hr', 'pm', 'sales', 'notes', 'docs', 'engineer', 'travel']);
+// Tabs collapsed into a dropdown in the nav bar to keep the header from
+// turning into a wall of pills — still individually routable (?tab=hr etc.)
+// and still individually listed in the command palette, since both read
+// from the flat TABS/visibleTabs list; only the nav bar's own rendering
+// groups them. World Map is deliberately left out of every group — it's
+// meant to stay a prominent top-level pill, not buried in a menu (it's a
+// team-wide bragging-rights leaderboard, visible to everyone regardless of
+// role, unlike the agents/reference tabs below).
+const NAV_GROUPS = [
+  { id: 'agents', label: 'Agents', icon: Bot, tabIds: new Set(['hr', 'pm', 'sales', 'notes', 'docs', 'engineer', 'travel']) },
+  { id: 'more', label: 'More', icon: Layers, tabIds: new Set(['customers', 'projects', 'scanner']) },
+];
 
 const LOG_TAGS = [
   { id: 'progress', label: 'Progress', color: TOKENS.teal },
@@ -1429,20 +1435,25 @@ export default function App() {
   const themeHex = THEME_HEX[theme];
   const [selectedMember, setSelectedMember] = useState(null);
   const [notifOpen, setNotifOpen] = useState(false);
-  const [agentsMenuOpen, setAgentsMenuOpen] = useState(false);
-  const [agentsMenuPos, setAgentsMenuPos] = useState(null);
-  const agentsButtonRef = useRef(null);
+  const [openNavMenu, setOpenNavMenu] = useState(null); // NAV_GROUPS id, or null
+  const [navMenuPos, setNavMenuPos] = useState(null);
+  const navMenuButtonRefs = useRef({});
 
   // The nav bar has overflow-x-auto (so the tab strip can scroll on narrow
   // screens), which also clips anything that overflows it vertically —
   // including a plain absolutely-positioned dropdown. Portal the panel to
   // document.body instead, positioned from the button's own on-screen rect.
-  function toggleAgentsMenu() {
-    if (!agentsMenuOpen && agentsButtonRef.current) {
-      const rect = agentsButtonRef.current.getBoundingClientRect();
-      setAgentsMenuPos({ top: rect.bottom + 6, left: rect.left });
+  function toggleNavMenu(groupId) {
+    if (openNavMenu !== groupId) {
+      const btn = navMenuButtonRefs.current[groupId];
+      if (btn) {
+        const rect = btn.getBoundingClientRect();
+        setNavMenuPos({ top: rect.bottom + 6, left: rect.left });
+      }
+      setOpenNavMenu(groupId);
+    } else {
+      setOpenNavMenu(null);
     }
-    setAgentsMenuOpen((o) => !o);
   }
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [timelineView, setTimelineView] = useState('list');
@@ -2062,36 +2073,37 @@ export default function App() {
 
         <nav className="flex items-center gap-1 p-1 rounded-full w-full sm:w-auto overflow-x-auto" style={{ background: TOKENS.surface }}>
           {(() => {
-            let agentsButtonShown = false;
-            const agentTabs = visibleTabs.filter((t) => AGENT_TAB_IDS.has(t.id));
-            const activeAgentTab = agentTabs.find((t) => t.id === activeTab);
+            const shownGroups = new Set();
             return visibleTabs.map((tab) => {
-              if (AGENT_TAB_IDS.has(tab.id)) {
-                if (agentsButtonShown) return null;
-                agentsButtonShown = true;
+              const group = NAV_GROUPS.find((g) => g.tabIds.has(tab.id));
+              if (group) {
+                if (shownGroups.has(group.id)) return null;
+                shownGroups.add(group.id);
+                const groupTabs = visibleTabs.filter((t) => group.tabIds.has(t.id));
+                const activeGroupTab = groupTabs.find((t) => t.id === activeTab);
                 return (
-                  <div key="agents-menu" className="relative flex-shrink-0">
+                  <div key={`${group.id}-menu`} className="relative flex-shrink-0">
                     <button
-                      ref={agentsButtonRef}
-                      onClick={toggleAgentsMenu}
+                      ref={(el) => { navMenuButtonRefs.current[group.id] = el; }}
+                      onClick={() => toggleNavMenu(group.id)}
                       className="px-3 py-1.5 rounded-full text-sm flex items-center gap-1.5 transition-colors flex-shrink-0"
-                      style={{ background: activeAgentTab ? TOKENS.surface2 : 'transparent', color: activeAgentTab ? TOKENS.text : TOKENS.textMuted }}
+                      style={{ background: activeGroupTab ? TOKENS.surface2 : 'transparent', color: activeGroupTab ? TOKENS.text : TOKENS.textMuted }}
                     >
-                      <Bot size={14} />
-                      <span className="hidden sm:inline">{activeAgentTab ? activeAgentTab.label : 'Agents'}</span>
+                      <group.icon size={14} />
+                      <span className="hidden sm:inline">{activeGroupTab ? activeGroupTab.label : group.label}</span>
                       <ChevronDown size={11} />
                     </button>
-                    {agentsMenuOpen && agentsMenuPos && createPortal(
+                    {openNavMenu === group.id && navMenuPos && createPortal(
                       <>
-                        <div className="fixed inset-0 z-40" onClick={() => setAgentsMenuOpen(false)} />
+                        <div className="fixed inset-0 z-40" onClick={() => setOpenNavMenu(null)} />
                         <div
                           className="fixed rounded-xl overflow-hidden z-50"
-                          style={{ top: agentsMenuPos.top, left: agentsMenuPos.left, width: 190, background: TOKENS.surface, border: `1px solid ${TOKENS.border}`, boxShadow: '0 12px 32px rgba(0,0,0,0.4)' }}
+                          style={{ top: navMenuPos.top, left: navMenuPos.left, width: 190, background: TOKENS.surface, border: `1px solid ${TOKENS.border}`, boxShadow: '0 12px 32px rgba(0,0,0,0.4)' }}
                         >
-                          {agentTabs.map((t) => (
+                          {groupTabs.map((t) => (
                             <button
                               key={t.id}
-                              onClick={() => { setActiveTab(t.id); setAgentsMenuOpen(false); }}
+                              onClick={() => { setActiveTab(t.id); setOpenNavMenu(null); }}
                               className="w-full text-left px-3 py-2 text-sm flex items-center gap-2"
                               style={{ background: activeTab === t.id ? TOKENS.surface2 : 'transparent', color: activeTab === t.id ? TOKENS.text : TOKENS.textMuted }}
                             >
