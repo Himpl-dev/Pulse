@@ -1919,6 +1919,19 @@ export default function App() {
     updateMemberSkills(memberId, member.skills.filter((s) => s.name !== name));
   }
 
+  // Sets (or changes) one skill's level for a member directly — used by the
+  // Skill Matrix's own cells, so a level can be set/edited right there
+  // instead of only via the per-member card editor.
+  function setMemberSkillLevel(memberId, name, level) {
+    const member = team.find((m) => m.id === memberId);
+    if (!member) return;
+    const exists = member.skills.some((s) => s.name === name);
+    const skills = exists
+      ? member.skills.map((s) => (s.name === name ? { ...s, level } : s))
+      : [...member.skills, { name, level }];
+    updateMemberSkills(memberId, skills);
+  }
+
   // Team-wide workload stats — deliberately span every project, not just the active one.
   const memberStats = useMemo(() => {
     return team.map((m) => {
@@ -2477,16 +2490,32 @@ export default function App() {
                               {skillsList.map((s) => {
                                 const entry = m.skills.find((ms) => ms.name === s.name);
                                 const levelIdx = entry ? SKILL_LEVELS.indexOf(entry.level) : -1;
+                                const cellStyle = {
+                                  background: levelIdx >= 0 ? hexToRgba(TOKENS.teal, 0.15 + levelIdx * 0.2) : entry ? hexToRgba(TOKENS.textMuted, 0.15) : 'transparent',
+                                  color: levelIdx >= 0 ? TOKENS.teal : TOKENS.textMuted,
+                                };
                                 return (
                                   <td key={s.id} className="px-3 py-2" style={{ borderBottom: `1px solid ${TOKENS.border}` }}>
-                                    {entry ? (
-                                      <span
-                                        className="inline-block px-2 py-0.5 rounded-full whitespace-nowrap"
-                                        style={{
-                                          background: levelIdx >= 0 ? hexToRgba(TOKENS.teal, 0.15 + levelIdx * 0.2) : hexToRgba(TOKENS.textMuted, 0.15),
-                                          color: levelIdx >= 0 ? TOKENS.teal : TOKENS.textMuted,
+                                    {isManagement ? (
+                                      // Lets a level be set/changed/cleared right from the
+                                      // matrix, not just from the per-member card editor.
+                                      <select
+                                        value={entry && levelIdx >= 0 ? entry.level : ''}
+                                        onChange={(e) => {
+                                          const v = e.target.value;
+                                          if (v === '') removeSkillFromMember(m.id, s.name);
+                                          else setMemberSkillLevel(m.id, s.name, v);
                                         }}
+                                        className="rounded-full px-2 py-0.5 text-xs"
+                                        style={{ ...cellStyle, border: `1px solid ${entry ? 'transparent' : TOKENS.border}` }}
+                                        title={entry && levelIdx < 0 ? `Custom level: ${entry.level}` : undefined}
                                       >
+                                        <option value="">—</option>
+                                        {entry && levelIdx < 0 && <option value={entry.level}>{entry.level}</option>}
+                                        {SKILL_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
+                                      </select>
+                                    ) : entry ? (
+                                      <span className="inline-block px-2 py-0.5 rounded-full whitespace-nowrap" style={cellStyle}>
                                         {entry.level}
                                       </span>
                                     ) : (
