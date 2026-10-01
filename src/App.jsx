@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, X, Bell, LayoutGrid, FolderKanban, Plus, Trash2, Building2,
   NotebookPen, LogOut, Sparkles, Loader2, Search, MessageSquare, Download, Repeat,
   Sun, Moon, ShieldCheck, LifeBuoy, Compass, Handshake, FileText, Wrench, Plane, StickyNote,
-  Bot, ChevronDown, ScanLine, Globe2,
+  Bot, ChevronDown, ScanLine, Globe2, Grid3x3,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -126,11 +126,17 @@ const LOG_TAGS = [
   { id: 'general', label: 'General', color: TOKENS.textMuted },
 ];
 
+// Fixed so the Skill Matrix can colour-code consistently — a free-text level
+// (like the legacy "Basic + Advanced" seed data) just renders without a
+// colour instead of breaking the scale.
+const SKILL_LEVELS = ['Basic', 'Intermediate', 'Advanced', 'Certified'];
+
 const INITIAL_PROJECTS = [];
 const INITIAL_TASKS = [];
 const INITIAL_LOGS = [];
 const INITIAL_TEAM = [];
 const INITIAL_COMMENTS = [];
+const INITIAL_SKILLS = [];
 
 /* --------------------------------- helpers ---------------------------------- */
 
@@ -219,6 +225,12 @@ function commentFromRow(r) {
 }
 function commentToRow(c) {
   return { id: c.id, task_id: c.taskId, author_id: c.authorId, body: c.body, created_at: c.createdAt };
+}
+function skillFromRow(r) {
+  return { id: r.id, name: r.name };
+}
+function skillToRow(s) {
+  return { id: s.id, name: s.name };
 }
 
 /* -------------------------------- primitives -------------------------------- */
@@ -545,6 +557,109 @@ function AddMemberForm({ onAdd }) {
         <Plus size={14} /> Add member
       </button>
     </form>
+  );
+}
+
+function AddSkillToListForm({ onAdd }) {
+  const [name, setName] = useState('');
+
+  function submit(e) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    onAdd(name.trim());
+    setName('');
+  }
+
+  return (
+    <form onSubmit={submit} className="flex items-center gap-1.5">
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="New skill name"
+        className="rounded-lg px-2.5 py-1.5 text-xs"
+        style={{ ...inputStyle, width: 150 }}
+      />
+      <button type="submit" className="px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 flex-shrink-0" style={{ background: TOKENS.blue, color: '#0B0D11' }}>
+        <Plus size={12} /> Add to list
+      </button>
+    </form>
+  );
+}
+
+// Per-member skill chips, with management-only controls to assign a skill
+// from the shared list (or type a new one, which also adds it to the list —
+// see addSkillToMember) and remove one already assigned.
+function MemberSkillsEditor({ member, skillsList, isManagement, onAdd, onRemove }) {
+  const [adding, setAdding] = useState(false);
+  const [choice, setChoice] = useState('__new');
+  const [newName, setNewName] = useState('');
+  const [level, setLevel] = useState(SKILL_LEVELS[0]);
+
+  const availableSkills = skillsList.filter((s) => !member.skills.some((ms) => ms.name === s.name));
+
+  function submit(e) {
+    e.preventDefault();
+    const name = choice === '__new' ? newName.trim() : choice;
+    if (!name) return;
+    onAdd(name, level);
+    setAdding(false);
+    setChoice('__new');
+    setNewName('');
+    setLevel(SKILL_LEVELS[0]);
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5 items-center">
+      {member.skills.map((s) => (
+        <span
+          key={s.name}
+          className="text-xs pl-2 py-1 rounded-full flex items-center gap-1"
+          style={{ background: hexToRgba(member.color, 0.12), color: member.color, border: `1px solid ${hexToRgba(member.color, 0.35)}`, paddingRight: isManagement ? 4 : 8 }}
+        >
+          {s.name} · {s.level}
+          {isManagement && (
+            <button type="button" onClick={() => onRemove(s.name)} aria-label={`Remove ${s.name}`} className="flex items-center" style={{ opacity: 0.7 }}>
+              <X size={11} />
+            </button>
+          )}
+        </span>
+      ))}
+      {member.skills.length === 0 && !adding && <span className="text-xs italic" style={{ color: TOKENS.textFaint }}>No skills recorded yet</span>}
+      {isManagement && (
+        adding ? (
+          <form onSubmit={submit} className="flex items-center gap-1 flex-wrap">
+            <select value={choice} onChange={(e) => setChoice(e.target.value)} className="rounded-lg px-1.5 py-1 text-xs" style={inputStyle}>
+              <option value="__new">+ New skill…</option>
+              {availableSkills.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+            </select>
+            {choice === '__new' && (
+              <input
+                autoFocus
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="Skill name"
+                className="rounded-lg px-1.5 py-1 text-xs"
+                style={{ ...inputStyle, width: 110 }}
+              />
+            )}
+            <select value={level} onChange={(e) => setLevel(e.target.value)} className="rounded-lg px-1.5 py-1 text-xs" style={inputStyle}>
+              {SKILL_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
+            </select>
+            <button type="submit" className="px-2 py-1 rounded-lg text-xs font-medium" style={{ background: TOKENS.blue, color: '#0B0D11' }}>Add</button>
+            <button type="button" onClick={() => setAdding(false)} className="px-1.5 py-1 text-xs" style={{ color: TOKENS.textFaint }}>Cancel</button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="text-xs px-2 py-1 rounded-full flex items-center gap-1"
+            style={{ background: TOKENS.surface2, color: TOKENS.textMuted, border: `1px dashed ${TOKENS.border}` }}
+          >
+            <Plus size={11} /> Skill
+          </button>
+        )
+      )}
+    </div>
   );
 }
 
@@ -1305,6 +1420,7 @@ export default function App() {
   const [tasks, setTasks] = useState(INITIAL_TASKS);
   const [logs, setLogs] = useState(INITIAL_LOGS);
   const [team, setTeam] = useState(INITIAL_TEAM);
+  const [skillsList, setSkillsList] = useState(INITIAL_SKILLS);
   const [comments, setComments] = useState(INITIAL_COMMENTS);
   const [openTaskId, setOpenTaskId] = useState(null);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
@@ -1443,6 +1559,7 @@ export default function App() {
         { data: teamRows, error: teamErr },
         { data: commentRows, error: commentErr },
         { data: roleRow, error: roleErr },
+        { data: skillRows, error: skillErr },
       ] = await Promise.all([
         supabase.from('projects').select('*'),
         supabase.from('tasks').select('*'),
@@ -1450,6 +1567,7 @@ export default function App() {
         supabase.from('team_members').select('*'),
         supabase.from('task_comments').select('*'),
         supabase.from('app_roles').select('access_tier').eq('auth_user_id', session.user.id).maybeSingle(),
+        supabase.from('skills').select('*').order('name'),
       ]);
       if (projErr) console.error('Failed to load projects', projErr);
       if (taskErr) console.error('Failed to load tasks', taskErr);
@@ -1457,11 +1575,13 @@ export default function App() {
       if (teamErr) console.error('Failed to load team', teamErr);
       if (commentErr) console.error('Failed to load comments', commentErr);
       if (roleErr) console.error('Failed to load access tier — defaulting to operator', roleErr);
+      if (skillErr) console.error('Failed to load skills', skillErr);
       setProjects((projectRows || []).map(projectFromRow));
       setLogs((logRows || []).map(logFromRow));
       setTeam((teamRows || []).map(memberFromRow));
       setComments((commentRows || []).map(commentFromRow));
       setIsManagement(roleRow?.access_tier === 'management');
+      setSkillsList((skillRows || []).map(skillFromRow));
       setLoading(false);
 
       // Auto-escalate: any open task that's gone overdue and isn't already
@@ -1751,6 +1871,52 @@ export default function App() {
         pushToast('Member removed, but some tasks may still reference them.');
       }
     }
+  }
+
+  // Adds a new name to the shared skill list (the Skill Matrix's columns) —
+  // separate from assigning it to anyone. `skills.name` is unique, so a
+  // duplicate is a harmless no-op from the database's point of view; the
+  // caller-side check just avoids a pointless round-trip for the common case
+  // of picking an existing name.
+  async function addSkillToList(name) {
+    if (skillsList.some((s) => s.name.toLowerCase() === name.toLowerCase())) return;
+    const skill = { id: crypto.randomUUID(), name };
+    setSkillsList((prev) => [...prev, skill].sort((a, b) => a.name.localeCompare(b.name)));
+    const { error } = await supabase.from('skills').insert(skillToRow(skill));
+    if (error) {
+      console.error('Failed to add skill to list', error);
+      setSkillsList((prev) => prev.filter((s) => s.id !== skill.id));
+      pushToast('Failed to add skill — try again.');
+    }
+  }
+
+  async function updateMemberSkills(memberId, skills) {
+    const prevTeam = team;
+    setTeam((prev) => prev.map((m) => (m.id === memberId ? { ...m, skills } : m)));
+    const { error } = await supabase.from('team_members').update({ skills }).eq('id', memberId);
+    if (error) {
+      console.error('Failed to update skills', error);
+      setTeam(prevTeam);
+      pushToast('Failed to update skills — try again.');
+    }
+  }
+
+  // Assigning a skill that doesn't exist on the shared list yet creates it
+  // there too, so the matrix gets a new column instead of silently dropping
+  // the name — this is the one path where a brand-new skill enters the list.
+  async function addSkillToMember(memberId, name, level) {
+    if (!skillsList.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
+      await addSkillToList(name);
+    }
+    const member = team.find((m) => m.id === memberId);
+    if (!member || member.skills.some((s) => s.name === name)) return;
+    updateMemberSkills(memberId, [...member.skills, { name, level }]);
+  }
+
+  function removeSkillFromMember(memberId, name) {
+    const member = team.find((m) => m.id === memberId);
+    if (!member) return;
+    updateMemberSkills(memberId, member.skills.filter((s) => s.name !== name));
   }
 
   // Team-wide workload stats — deliberately span every project, not just the active one.
@@ -2256,17 +2422,85 @@ export default function App() {
                       </div>
                       <div style={{ borderTop: `1px solid ${TOKENS.border}`, paddingTop: 10 }}>
                         <p className="text-xs font-medium uppercase tracking-wider mb-1.5" style={{ color: TOKENS.textFaint }}>Skills</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {m.skills.map((s) => (
-                            <span key={s.name} className="text-xs px-2 py-1 rounded-full" style={{ background: hexToRgba(m.color, 0.12), color: m.color, border: `1px solid ${hexToRgba(m.color, 0.35)}` }}>
-                              {s.name} · {s.level}
-                            </span>
-                          ))}
-                          {m.skills.length === 0 && <span className="text-xs italic" style={{ color: TOKENS.textFaint }}>No skills recorded yet</span>}
-                        </div>
+                        <MemberSkillsEditor
+                          member={m}
+                          skillsList={skillsList}
+                          isManagement={isManagement}
+                          onAdd={(name, level) => addSkillToMember(m.id, name, level)}
+                          onRemove={(name) => removeSkillFromMember(m.id, name)}
+                        />
                       </div>
                     </div>
                   ))}
+                </div>
+
+                <div className="rounded-xl p-4 mb-8" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
+                  <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                    <h2 className="font-display font-semibold text-sm flex items-center gap-2">
+                      <Grid3x3 size={15} /> Skill matrix
+                    </h2>
+                    {isManagement && <AddSkillToListForm onAdd={addSkillToList} />}
+                  </div>
+                  {skillsList.length === 0 ? (
+                    <p className="text-xs italic" style={{ color: TOKENS.textFaint }}>No skills recorded yet.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="text-xs" style={{ borderCollapse: 'collapse', width: '100%' }}>
+                        <thead>
+                          <tr>
+                            <th
+                              className="text-left px-3 py-2 sticky left-0 font-medium"
+                              style={{ background: TOKENS.surface, color: TOKENS.textFaint, borderBottom: `1px solid ${TOKENS.border}` }}
+                            >
+                              Team member
+                            </th>
+                            {skillsList.map((s) => (
+                              <th
+                                key={s.id}
+                                className="px-3 py-2 font-medium text-left"
+                                style={{ color: TOKENS.textFaint, borderBottom: `1px solid ${TOKENS.border}`, whiteSpace: 'nowrap' }}
+                              >
+                                {s.name}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {team.map((m) => (
+                            <tr key={m.id}>
+                              <td
+                                className="px-3 py-2 sticky left-0 font-medium"
+                                style={{ background: TOKENS.surface, color: TOKENS.text, borderBottom: `1px solid ${TOKENS.border}`, whiteSpace: 'nowrap' }}
+                              >
+                                {m.name}
+                              </td>
+                              {skillsList.map((s) => {
+                                const entry = m.skills.find((ms) => ms.name === s.name);
+                                const levelIdx = entry ? SKILL_LEVELS.indexOf(entry.level) : -1;
+                                return (
+                                  <td key={s.id} className="px-3 py-2" style={{ borderBottom: `1px solid ${TOKENS.border}` }}>
+                                    {entry ? (
+                                      <span
+                                        className="inline-block px-2 py-0.5 rounded-full whitespace-nowrap"
+                                        style={{
+                                          background: levelIdx >= 0 ? hexToRgba(TOKENS.teal, 0.15 + levelIdx * 0.2) : hexToRgba(TOKENS.textMuted, 0.15),
+                                          color: levelIdx >= 0 ? TOKENS.teal : TOKENS.textMuted,
+                                        }}
+                                      >
+                                        {entry.level}
+                                      </span>
+                                    ) : (
+                                      <span style={{ color: TOKENS.border }}>—</span>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

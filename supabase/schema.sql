@@ -296,3 +296,37 @@ create policy "authenticated only" on site_reports
 --    Run this once in the SQL Editor — the table and its RLS are left in
 --    place so the feature can be reinstated properly later.
 delete from logs;
+
+-- 20. Shared skill list for the new Skill Matrix on the Team tab. Skills were
+--    previously free-text names typed straight into team_members.skills, so
+--    the same skill could end up spelled differently by different people,
+--    which makes a matrix view useless (it can't tell two spellings are the
+--    same column). This table is the canonical list everyone picks a name
+--    from when assigning a skill to a member. team_members.skills keeps its
+--    existing [{name, level}] shape — this doesn't migrate it, just gives
+--    future entries a shared source of names. Readable by everyone (matrix
+--    is visible team-wide, matching skills already being visible on Team
+--    today); adding to the list is management-only, matching every other
+--    "editing the team" action in this schema.
+create table if not exists skills (
+  id uuid primary key,
+  name text not null unique,
+  created_at timestamptz not null default now()
+);
+alter table skills enable row level security;
+drop policy if exists "read skills" on skills;
+drop policy if exists "management inserts skills" on skills;
+create policy "read skills" on skills
+  for select using (auth.role() = 'authenticated');
+create policy "management inserts skills" on skills
+  for insert with check (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'));
+
+-- Seed the list from skill names already in use on existing team members,
+-- so the matrix isn't empty on first load.
+insert into skills (id, name)
+select gen_random_uuid(), name
+from (
+  select distinct s->>'name' as name
+  from team_members, jsonb_array_elements(skills) as s
+) existing_names
+on conflict (name) do nothing;
