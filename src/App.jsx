@@ -67,6 +67,45 @@ function suggestAssigneesFromSkills(title, team, skillsList, levelFor) {
   return matches;
 }
 
+// Open tasks a person isn't on yet, ranked by how well their skills match the
+// task title and how much they've already done on the same project.
+function recommendTasksFor(member, tasks, skillsList, levelFor, limit = 4) {
+  const open = tasks.filter((t) => t.status !== 'done' && !t.assignees.includes(member.id));
+  const doneByMember = tasks.filter((t) => t.status === 'done' && t.assignees.includes(member.id));
+  return open
+    .map((task) => {
+      const text = task.title.toLowerCase();
+      const reasons = [];
+      let score = 0;
+      for (const skill of skillsList) {
+        if (skill.targetLevel === 0) continue;
+        const name = skill.name.toLowerCase();
+        const words = name.split(/\s+/).filter((w) => w.length >= 5);
+        if (!(text.includes(name) || words.some((w) => text.includes(w)))) continue;
+        const level = levelFor(member.id, skill.id);
+        if (level >= skill.targetLevel) {
+          score += 3;
+          reasons.push(`Uses ${skill.name}`);
+        } else if (level >= skill.targetLevel - 1) {
+          score += 2;
+          reasons.push(`Close to target on ${skill.name}`);
+        } else if (skill.critical) {
+          score += 1;
+          reasons.push(`Helps close a critical gap: ${skill.name}`);
+        }
+      }
+      const donePrior = doneByMember.filter((t) => t.projectId === task.projectId).length;
+      if (donePrior > 0) {
+        score += Math.min(3, donePrior);
+        reasons.push(`Done ${donePrior} task${donePrior === 1 ? '' : 's'} on this project`);
+      }
+      return { task, score, reasons };
+    })
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
 // Wordmark placeholders (short + color) until real logo image files are added — see CustomerLogo.
 const CUSTOMERS = [
   { id: 'bytronic', name: 'Bytronic', short: 'BYT', color: TOKENS.blue, note: 'In-house · multiple suppliers' },
@@ -477,6 +516,33 @@ function TaskListPopover({ tasks, projects, onSelectTask }) {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function RecommendedTasks({ recs, projects, onOpen }) {
+  return (
+    <div className="mt-4 pt-3" style={{ borderTop: `1px solid ${TOKENS.border}` }}>
+      <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: TOKENS.textFaint }}>Recommended next</p>
+      {recs.length === 0 && <p className="text-xs italic" style={{ color: TOKENS.textFaint }}>Nothing stands out right now.</p>}
+      <div className="space-y-1.5">
+        {recs.map(({ task, reasons }) => {
+          const project = projects.find((p) => p.id === task.projectId);
+          return (
+            <button
+              key={task.id}
+              type="button"
+              onClick={() => onOpen(task)}
+              className="w-full text-left p-2.5 rounded-lg"
+              style={{ background: TOKENS.surface2, border: `1px solid ${TOKENS.border}` }}
+            >
+              <p className="text-sm truncate" style={{ color: TOKENS.text }}>{task.title}</p>
+              <p className="text-xs truncate" style={{ color: TOKENS.textFaint }}>{project ? project.name : 'Unknown project'} · {formatDue(task.due)}</p>
+              <p className="text-xs mt-1" style={{ color: TOKENS.teal }}>{reasons.slice(0, 2).join(' · ')}</p>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -2336,6 +2402,13 @@ export default function App() {
                           );
                         })()}
                       </div>
+                      {expanded && (
+                        <RecommendedTasks
+                          recs={recommendTasksFor(m, tasks, skillsList, levelFor)}
+                          projects={projects}
+                          onOpen={jumpToTask}
+                        />
+                      )}
                     </div>
                   );
                   const expandedMember = memberStats.find((m) => m.id === expandedMemberId);
