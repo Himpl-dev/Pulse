@@ -1325,6 +1325,7 @@ export default function App() {
   const [memberSkillLevels, setMemberSkillLevels] = useState({}); // { [memberId]: { [skillId]: level } }
   const levelFor = (memberId, skillId) => memberSkillLevels[memberId]?.[skillId] ?? 0;
   const [focusMemberId, setFocusMemberId] = useState(null);
+  const [expandedMemberId, setExpandedMemberId] = useState(null);
   function skillSummary(memberId) {
     const targeted = skillsList.filter((s) => s.targetLevel > 0);
     const gaps = targeted.filter((s) => levelFor(memberId, s.id) < s.targetLevel);
@@ -2226,15 +2227,15 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-                  {memberStats.map((m, i) => (
+                {(() => {
+                  const renderMemberCard = (m, i, expanded) => (
                     // stagger-item's fadeIn animation leaves a transform on the card,
                     // which makes it a stacking context — so an open task popover
                     // gets painted under the next card unless we lift this card's
                     // z-index above its siblings while a popover is open.
                     <div
                       key={m.id}
-                      className="rounded-xl p-4 stagger-item relative"
+                      className={`rounded-xl ${expanded ? 'p-6' : 'p-4'} stagger-item relative`}
                       style={{
                         background: TOKENS.surface,
                         border: `1px solid ${TOKENS.border}`,
@@ -2243,12 +2244,19 @@ export default function App() {
                       }}
                     >
                       <div className="flex items-center gap-3 mb-3">
-                        <div className="w-11 h-11 rounded-full flex items-center justify-center font-display font-semibold text-sm flex-shrink-0" style={{ background: hexToRgba(m.color, 0.18), color: m.color, border: `1px solid ${hexToRgba(m.color, 0.4)}` }}>
+                        <div className={`${expanded ? 'w-16 h-16 text-lg' : 'w-11 h-11 text-sm'} rounded-full flex items-center justify-center font-display font-semibold flex-shrink-0`} style={{ background: hexToRgba(m.color, 0.18), color: m.color, border: `1px solid ${hexToRgba(m.color, 0.4)}` }}>
                           {m.initials}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-display font-semibold text-sm truncate">{m.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedMemberId(expanded ? null : m.id)}
+                              title={expanded ? 'Back to all cards' : `Enlarge ${m.name}`}
+                              className={`font-display font-semibold truncate text-left ${expanded ? 'text-lg' : 'text-sm'}`}
+                            >
+                              {m.name}
+                            </button>
                             <PulseDot color={m.tone} pulse={m.pulse} size={7} />
                           </div>
                           <span className="text-xs" style={{ color: TOKENS.textMuted }}>{m.role}</span>
@@ -2329,8 +2337,48 @@ export default function App() {
                         })()}
                       </div>
                     </div>
-                  ))}
-                </div>
+                  );
+                  const expandedMember = memberStats.find((m) => m.id === expandedMemberId);
+                  if (expandedMember) {
+                    return (
+                      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_240px] gap-4 mb-8 items-start">
+                        {renderMemberCard(expandedMember, memberStats.indexOf(expandedMember), true)}
+                        <div className="flex flex-col gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setExpandedMemberId(null)}
+                            className="text-xs px-3 py-2 rounded-lg mb-1"
+                            style={{ background: TOKENS.surface2, color: TOKENS.textMuted, border: `1px solid ${TOKENS.border}` }}
+                          >
+                            ← Back to all cards
+                          </button>
+                          {memberStats.filter((m) => m.id !== expandedMemberId).map((m) => (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => setExpandedMemberId(m.id)}
+                              className="flex items-center gap-2.5 p-2 rounded-xl text-left"
+                              style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}
+                            >
+                              <div className="w-8 h-8 rounded-full flex items-center justify-center font-display font-semibold text-xs flex-shrink-0" style={{ background: hexToRgba(m.color, 0.18), color: m.color, border: `1px solid ${hexToRgba(m.color, 0.4)}` }}>
+                                {m.initials}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-display font-semibold truncate">{m.name}</p>
+                                <p className="font-mono" style={{ fontSize: 10, color: TOKENS.textMuted }}>{m.pct}% · {m.overdue} overdue</p>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                      {memberStats.map((m, i) => renderMemberCard(m, i, false))}
+                    </div>
+                  );
+                })()}
 
                 <div className="rounded-xl p-4 mb-8" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
                   <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
