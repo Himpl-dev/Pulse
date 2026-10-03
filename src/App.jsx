@@ -52,8 +52,10 @@ function initialsFromName(name) {
 function suggestAssigneesFromSkills(title, team, skillsList, levelFor) {
   const t = title.trim().toLowerCase();
   if (t.length < 3) return [];
+  const liaison = isCustomerLiaisonTask(title);
   const matches = [];
   for (const member of team) {
+    if (liaison && !isLeadMember(member)) continue;
     for (const skill of skillsList) {
       if (skill.target_level === 0 || levelFor(member.id, skill.id) < skill.target_level) continue;
       const skillLower = skill.name.toLowerCase();
@@ -67,10 +69,24 @@ function suggestAssigneesFromSkills(title, team, skillsList, levelFor) {
   return matches;
 }
 
+// Customer liaison belongs to the team lead unless it's been assigned to
+// someone else, so it's only ever suggested to the lead.
+const CUSTOMER_LIAISON_PATTERN = /liais|client|customer (contact|update|call|meeting|comms|communication|feedback|quer)/i;
+function isCustomerLiaisonTask(title) {
+  return CUSTOMER_LIAISON_PATTERN.test(title || '');
+}
+function isLeadMember(m) {
+  return /team lead/i.test(m.role || '');
+}
+
 // Open tasks a person isn't on yet, ranked by how well their skills match the
 // task title and how much they've already done on the same project.
-function recommendTasksFor(member, tasks, skillsList, levelFor, limit = 4) {
-  const open = tasks.filter((t) => t.status !== 'done' && !t.assignees.includes(member.id));
+function recommendTasksFor(member, tasks, skillsList, levelFor, leadIds, limit = 4) {
+  const open = tasks.filter((t) => {
+    if (t.status === 'done' || t.assignees.includes(member.id)) return false;
+    if (!isCustomerLiaisonTask(t.title)) return true;
+    return leadIds.includes(member.id) && t.assignees.every((id) => leadIds.includes(id));
+  });
   const doneByMember = tasks.filter((t) => t.status === 'done' && t.assignees.includes(member.id));
   return open
     .map((task) => {
@@ -176,6 +192,40 @@ const LOG_TAGS = [
 // Skill levels run 0 (no experience) to 4 (expert), matching the team's skills sheet.
 const SKILL_LEVEL_OPTIONS = [0, 1, 2, 3, 4];
 const SKILL_PRIORITY_COLOR = { High: TOKENS.coral, Medium: TOKENS.amber, Low: TOKENS.textMuted };
+
+// Monthly admin tasks run from the 25th of one month to the 5th of the next.
+// Everyone gets the personal sheets; the team lead also gets the approvals.
+const ADMIN_PROJECT_ID = 'admin-monthly';
+const ADMIN_TASK_TEMPLATES = [
+  { key: 'expenses', title: 'Submit expenses', leadOnly: false },
+  { key: 'bytronic-timesheet', title: 'Submit Bytronic timesheet', leadOnly: false },
+  { key: 'cognex-timesheet', title: 'Submit Cognex timesheet', leadOnly: false },
+  { key: 'overtime', title: 'Submit overtime sheet', leadOnly: false },
+  { key: 'approve-expenses', title: 'Approve team expenses', leadOnly: true },
+  { key: 'approve-timesheets', title: 'Approve team timesheets', leadOnly: true },
+];
+
+function adminPeriodFor(today) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const iso = (y, m, d) => `${y}-${pad(m)}-${pad(d)}`;
+  const y = today.getFullYear();
+  const m = today.getMonth() + 1;
+  const d = today.getDate();
+  const label = (dateStr) => new Date(`${dateStr}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  if (d >= 25) {
+    const next = m === 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 };
+    const start = iso(y, m, 25);
+    const end = iso(next.y, next.m, 5);
+    return { start, end, label: `${label(start)} – ${label(end)}` };
+  }
+  if (d <= 5) {
+    const prev = m === 1 ? { y: y - 1, m: 12 } : { y, m: m - 1 };
+    const start = iso(prev.y, prev.m, 25);
+    const end = iso(y, m, 5);
+    return { start, end, label: `${label(start)} – ${label(end)}` };
+  }
+  return null;
+}
 
 const INITIAL_PROJECTS = [];
 const INITIAL_TASKS = [];
@@ -1595,6 +1645,61 @@ export default function App() {
     })();
   }, [session]);
 
+  // Creates this period's admin tasks for everyone once the window is open.
+  // Runs from the management account; admin_key makes repeat runs no-ops.
+  const adminRanForRef = useRef(null);
+  useEffect(() => {
+    if (!session || !isManagement || loading || team.length === 0) return;
+    const period = adminPeriodFor(new Date());
+    if (!period || adminRanForRef.current === period.start) return;
+    adminRanForRef.current = period.start;
+    (async () => {
+      const { data: existing, error: existingErr } = await supabase.from('tasks').select('admin_key').not('admin_key', 'is', null);
+      if (existingErr) {
+        console.error('Failed to check admin tasks', existingErr);
+        adminRanForRef.current = null;
+        return;
+      }
+      const have = new Set((existing || []).map((r) => r.admin_key));
+      const lead = team.filter(isLeadMember);
+      const rows = [];
+      for (const tpl of ADMIN_TASK_TEMPLATES) {
+        const owners = tpl.leadOnly ? lead : team;
+        for (const m of owners) {
+          const key = `${tpl.key}:${m.id}:${period.start}`;
+          if (have.has(key)) continue;
+          rows.push({
+            id: crypto.randomUUID(),
+            title: `${tpl.title} (${period.label})`,
+            assignees: [m.id],
+            priority: 'medium',
+            due: period.end,
+            status: 'backlog',
+            project_id: ADMIN_PROJECT_ID,
+            repeat: 'none',
+            start_date: period.start,
+            admin_key: key,
+          });
+        }
+      }
+      if (rows.length === 0) return;
+      await supabase.from('projects').upsert(
+        { id: ADMIN_PROJECT_ID, name: 'Admin (monthly)', subtitle: 'Expenses, timesheets and approvals', deadline: null, customer_id: 'bytronic' },
+        { onConflict: 'id', ignoreDuplicates: true }
+      );
+      setProjects((prev) => (prev.some((p) => p.id === ADMIN_PROJECT_ID)
+        ? prev
+        : [...prev, { id: ADMIN_PROJECT_ID, name: 'Admin (monthly)', subtitle: 'Expenses, timesheets and approvals', deadline: null, customerId: 'bytronic' }]));
+      const { error: insertErr } = await supabase.from('tasks').insert(rows);
+      if (insertErr) {
+        console.error('Failed to create admin tasks', insertErr);
+        adminRanForRef.current = null;
+        return;
+      }
+      setTasks((prev) => [...prev, ...rows.map(taskFromRow)]);
+    })();
+  }, [session, isManagement, loading, team]);
+
   async function addProject({ name, subtitle, deadline, customerId }) {
     const id = `p${projects.length}-${name.toLowerCase().replace(/\s+/g, '-')}-${Math.round(Math.random() * 1e6)}`;
     const project = { id, name, subtitle, deadline, customerId };
@@ -2404,7 +2509,7 @@ export default function App() {
                       </div>
                       {expanded && (
                         <RecommendedTasks
-                          recs={recommendTasksFor(m, tasks, skillsList, levelFor)}
+                          recs={recommendTasksFor(m, tasks, skillsList, levelFor, team.filter(isLeadMember).map((x) => x.id))}
                           projects={projects}
                           onOpen={jumpToTask}
                         />

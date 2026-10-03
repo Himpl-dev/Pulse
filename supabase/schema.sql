@@ -499,3 +499,8 @@ cross join lateral (values
   ('Maxwell Taylor', l.maxwell)
 ) as x(member_name, level)
 join team_members t on t.name = x.member_name;
+
+-- 22. Monthly admin tasks (25th to 5th). admin_key marks a generated task as
+--     "this template, for this person, in this period", so generating again
+--     for the same period never creates a duplicate.
+alter table tasks add column if not exists admin_key text unique;
