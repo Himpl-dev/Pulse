@@ -79,6 +79,52 @@ function isLeadMember(m) {
   return /team lead/i.test(m.role || '');
 }
 
+// Admin tasks build the documentation skill but aren't project experience, so
+// they're kept out of project-based scoring entirely.
+const ADMIN_SKILL_NAME = 'Site report writing';
+const UPSKILL_THRESHOLD = 3;
+
+function isAdminTask(task) {
+  return task.projectId === ADMIN_PROJECT_ID;
+}
+
+// Whether a completed task builds a given skill. Admin tasks only build the
+// documentation skill; other tasks match by skill name appearing in the title.
+function taskBuildsSkill(task, skill) {
+  if (isAdminTask(task)) return skill.name === ADMIN_SKILL_NAME;
+  const text = task.title.toLowerCase();
+  const name = skill.name.toLowerCase();
+  const words = name.split(/\s+/).filter((w) => w.length >= 5);
+  return text.includes(name) || words.some((w) => text.includes(w));
+}
+
+// Pairs of (member, skill) where enough completed tasks have built the skill
+// since the last decision, and the skill is still below its target.
+function upskillProposalsFor(team, tasks, skillsList, levelFor, decisions) {
+  const proposals = [];
+  for (const member of team) {
+    for (const skill of skillsList) {
+      if (skill.targetLevel === 0) continue;
+      const level = levelFor(member.id, skill.id);
+      if (level >= skill.targetLevel || level >= 4) continue;
+      const decided = decisions
+        .filter((d) => d.member_id === member.id && d.skill_id === skill.id)
+        .map((d) => d.decided_at.slice(0, 10));
+      const since = decided.length ? decided.sort().at(-1) : null;
+      const evidence = tasks.filter((t) =>
+        t.status === 'done' &&
+        t.assignees.includes(member.id) &&
+        (!since || t.due > since) &&
+        taskBuildsSkill(t, skill)
+      ).length;
+      if (evidence >= UPSKILL_THRESHOLD) {
+        proposals.push({ member, skill, from: level, to: level + 1, evidence });
+      }
+    }
+  }
+  return proposals;
+}
+
 // Open tasks a person isn't on yet, ranked by how well their skills match the
 // task title and how much they've already done on the same project.
 function recommendTasksFor(member, tasks, skillsList, levelFor, leadIds, limit = 4) {
@@ -87,7 +133,7 @@ function recommendTasksFor(member, tasks, skillsList, levelFor, leadIds, limit =
     if (!isCustomerLiaisonTask(t.title)) return true;
     return leadIds.includes(member.id) && t.assignees.every((id) => leadIds.includes(id));
   });
-  const doneByMember = tasks.filter((t) => t.status === 'done' && t.assignees.includes(member.id));
+  const doneByMember = tasks.filter((t) => t.status === 'done' && t.assignees.includes(member.id) && !isAdminTask(t));
   return open
     .map((task) => {
       const text = task.title.toLowerCase();
@@ -566,6 +612,34 @@ function TaskListPopover({ tasks, projects, onSelectTask }) {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function UpskillPanel({ proposals, isManagement, onDecide }) {
+  return (
+    <div className="rounded-xl p-4 mb-8" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
+      <h2 className="font-display font-semibold text-sm flex items-center gap-2 mb-1">
+        <TrendingUp size={15} /> Level-up suggestions
+      </h2>
+      <p className="text-xs mb-3" style={{ color: TOKENS.textFaint }}>
+        Suggested when enough completed tasks build a skill. {isManagement ? 'Approve or reject each one — levels only change when you approve.' : 'Only the team lead can approve level changes.'}
+      </p>
+      {proposals.length === 0 && <p className="text-xs italic" style={{ color: TOKENS.textFaint }}>No suggestions right now.</p>}
+      {proposals.map((p) => (
+        <div key={`${p.member.id}-${p.skill.id}`} className="flex flex-wrap items-center justify-between gap-2 py-2.5" style={{ borderTop: `1px solid ${TOKENS.border}` }}>
+          <div className="min-w-0">
+            <p className="text-sm" style={{ color: TOKENS.text }}>{p.member.name} · {p.skill.name}</p>
+            <p className="text-xs" style={{ color: TOKENS.textFaint }}>{p.evidence} completed tasks · level {p.from} → {p.to}</p>
+          </div>
+          {isManagement && (
+            <div className="flex gap-1.5 flex-shrink-0">
+              <button type="button" onClick={() => onDecide(p, true)} className="px-2.5 py-1.5 rounded-lg text-xs font-medium" style={{ background: TOKENS.blue, color: '#0B0D11' }}>Approve</button>
+              <button type="button" onClick={() => onDecide(p, false)} className="px-2.5 py-1.5 rounded-lg text-xs font-medium" style={{ background: TOKENS.surface2, color: TOKENS.textMuted, border: `1px solid ${TOKENS.border}` }}>Reject</button>
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -1439,6 +1513,7 @@ export default function App() {
   const [team, setTeam] = useState(INITIAL_TEAM);
   const [skillsList, setSkillsList] = useState(INITIAL_SKILLS);
   const [memberSkillLevels, setMemberSkillLevels] = useState({}); // { [memberId]: { [skillId]: level } }
+  const [skillDecisions, setSkillDecisions] = useState([]);
   const levelFor = (memberId, skillId) => memberSkillLevels[memberId]?.[skillId] ?? 0;
   const [focusMemberId, setFocusMemberId] = useState(null);
   const [expandedMemberId, setExpandedMemberId] = useState(null);
@@ -1592,6 +1667,7 @@ export default function App() {
         { data: roleRow, error: roleErr },
         { data: skillRows, error: skillErr },
         { data: memberSkillRows, error: memberSkillErr },
+        { data: decisionRows, error: decisionErr },
       ] = await Promise.all([
         supabase.from('projects').select('*'),
         supabase.from('tasks').select('*'),
@@ -1601,6 +1677,7 @@ export default function App() {
         supabase.from('app_roles').select('access_tier').eq('auth_user_id', session.user.id).maybeSingle(),
         supabase.from('skills').select('*').order('sort_order'),
         supabase.from('member_skills').select('*'),
+        supabase.from('skill_level_decisions').select('*'),
       ]);
       if (projErr) console.error('Failed to load projects', projErr);
       if (taskErr) console.error('Failed to load tasks', taskErr);
@@ -1610,6 +1687,8 @@ export default function App() {
       if (roleErr) console.error('Failed to load access tier — defaulting to operator', roleErr);
       if (skillErr) console.error('Failed to load skills', skillErr);
       if (memberSkillErr) console.error('Failed to load skill levels', memberSkillErr);
+      if (decisionErr) console.error('Failed to load level-up decisions', decisionErr);
+      setSkillDecisions(decisionRows || []);
       setProjects((projectRows || []).map(projectFromRow));
       setLogs((logRows || []).map(logFromRow));
       setTeam((teamRows || []).map(memberFromRow));
@@ -1965,6 +2044,29 @@ export default function App() {
         pushToast('Member removed, but some tasks may still reference them.');
       }
     }
+  }
+
+  // The lead's decision on a suggested level-up. Approving also sets the level;
+  // either way the decision is logged, which restarts the completed-task count.
+  async function decideUpskill(proposal, approved) {
+    const row = {
+      id: crypto.randomUUID(),
+      member_id: proposal.member.id,
+      skill_id: proposal.skill.id,
+      from_level: proposal.from,
+      to_level: proposal.to,
+      decision: approved ? 'approved' : 'rejected',
+      decided_at: new Date().toISOString(),
+    };
+    setSkillDecisions((prev) => [...prev, row]);
+    const { error } = await supabase.from('skill_level_decisions').insert(row);
+    if (error) {
+      console.error('Failed to save level-up decision', error);
+      setSkillDecisions((prev) => prev.filter((d) => d.id !== row.id));
+      pushToast('Failed to save the decision — try again.');
+      return;
+    }
+    if (approved) await setSkillLevel(proposal.member.id, proposal.skill.id, proposal.to);
   }
 
   // One matrix cell saved as one row. Upsert keyed on (member, skill), so the
@@ -2689,6 +2791,12 @@ export default function App() {
                     </div>
                   )}
                 </div>
+
+                <UpskillPanel
+                  proposals={upskillProposalsFor(team, tasks, skillsList, levelFor, skillDecisions)}
+                  isManagement={isManagement}
+                  onDecide={decideUpskill}
+                />
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   <div className="rounded-xl p-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>

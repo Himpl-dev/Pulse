@@ -504,3 +504,24 @@ join team_members t on t.name = x.member_name;
 --     "this template, for this person, in this period", so generating again
 --     for the same period never creates a duplicate.
 alter table tasks add column if not exists admin_key text unique;
+
+-- 23. Level-up decisions. The app suggests a level-up once enough completed
+--     tasks build a skill; only the team lead can approve or reject it. Each
+--     decision is logged here, and the count of completed tasks restarts from
+--     the decision date.
+create table if not exists skill_level_decisions (
+  id uuid primary key,
+  member_id text not null references team_members(id) on delete cascade,
+  skill_id uuid not null references skills(id) on delete cascade,
+  from_level int not null,
+  to_level int not null,
+  decision text not null check (decision in ('approved', 'rejected')),
+  decided_at timestamptz not null default now()
+);
+alter table skill_level_decisions enable row level security;
+drop policy if exists "read skill decisions" on skill_level_decisions;
+drop policy if exists "management writes skill decisions" on skill_level_decisions;
+create policy "read skill decisions" on skill_level_decisions
+  for select using (auth.role() = 'authenticated');
+create policy "management writes skill decisions" on skill_level_decisions
+  for insert with check (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'));
