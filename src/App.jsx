@@ -46,14 +46,16 @@ function initialsFromName(name) {
   return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase();
 }
 
-// Surfaces members whose recorded skills look relevant to a task title, e.g.
-// typing "Cognex C1 calibration" suggests whoever is Certified on Cognex C1.
-function suggestAssigneesFromSkills(title, team) {
+// Surfaces members who are at target on a skill whose name matches the task
+// title, e.g. typing "Cognex DataMan backup" suggests whoever meets the target
+// for Cognex DataMan setup & backups.
+function suggestAssigneesFromSkills(title, team, skillsList, levelFor) {
   const t = title.trim().toLowerCase();
   if (t.length < 3) return [];
   const matches = [];
   for (const member of team) {
-    for (const skill of member.skills || []) {
+    for (const skill of skillsList) {
+      if (skill.target_level === 0 || levelFor(member.id, skill.id) < skill.target_level) continue;
       const skillLower = skill.name.toLowerCase();
       const skillWords = skillLower.split(/\s+/).filter((w) => w.length >= 4);
       if (t.includes(skillLower) || skillWords.some((w) => t.includes(w))) {
@@ -132,10 +134,9 @@ const LOG_TAGS = [
   { id: 'general', label: 'General', color: TOKENS.textMuted },
 ];
 
-// Fixed so the Skill Matrix can colour-code consistently — a free-text level
-// (like the legacy "Basic + Advanced" seed data) just renders without a
-// colour instead of breaking the scale.
-const SKILL_LEVELS = ['Basic', 'Intermediate', 'Advanced', 'Certified'];
+// Skill levels run 0 (no experience) to 4 (expert), matching the team's skills sheet.
+const SKILL_LEVEL_OPTIONS = [0, 1, 2, 3, 4];
+const SKILL_PRIORITY_COLOR = { High: TOKENS.coral, Medium: TOKENS.amber, Low: TOKENS.textMuted };
 
 const INITIAL_PROJECTS = [];
 const INITIAL_TASKS = [];
@@ -233,10 +234,7 @@ function commentToRow(c) {
   return { id: c.id, task_id: c.taskId, author_id: c.authorId, body: c.body, created_at: c.createdAt };
 }
 function skillFromRow(r) {
-  return { id: r.id, name: r.name };
-}
-function skillToRow(s) {
-  return { id: s.id, name: s.name };
+  return { id: r.id, name: r.name, category: r.category, description: r.description, targetLevel: r.target_level, critical: r.critical, priority: r.priority, sortOrder: r.sort_order };
 }
 
 /* -------------------------------- primitives -------------------------------- */
@@ -566,109 +564,6 @@ function AddMemberForm({ onAdd }) {
   );
 }
 
-function AddSkillToListForm({ onAdd }) {
-  const [name, setName] = useState('');
-
-  function submit(e) {
-    e.preventDefault();
-    if (!name.trim()) return;
-    onAdd(name.trim());
-    setName('');
-  }
-
-  return (
-    <form onSubmit={submit} className="flex items-center gap-1.5">
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="New skill name"
-        className="rounded-lg px-2.5 py-1.5 text-xs"
-        style={{ ...inputStyle, width: 150 }}
-      />
-      <button type="submit" className="px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 flex-shrink-0" style={{ background: TOKENS.blue, color: '#0B0D11' }}>
-        <Plus size={12} /> Add to list
-      </button>
-    </form>
-  );
-}
-
-// Per-member skill chips, with management-only controls to assign a skill
-// from the shared list (or type a new one, which also adds it to the list —
-// see addSkillToMember) and remove one already assigned.
-function MemberSkillsEditor({ member, skillsList, isManagement, onAdd, onRemove }) {
-  const [adding, setAdding] = useState(false);
-  const [choice, setChoice] = useState('__new');
-  const [newName, setNewName] = useState('');
-  const [level, setLevel] = useState(SKILL_LEVELS[0]);
-
-  const availableSkills = skillsList.filter((s) => !member.skills.some((ms) => ms.name === s.name));
-
-  function submit(e) {
-    e.preventDefault();
-    const name = choice === '__new' ? newName.trim() : choice;
-    if (!name) return;
-    onAdd(name, level);
-    setAdding(false);
-    setChoice('__new');
-    setNewName('');
-    setLevel(SKILL_LEVELS[0]);
-  }
-
-  return (
-    <div className="flex flex-wrap gap-1.5 items-center">
-      {member.skills.map((s) => (
-        <span
-          key={s.name}
-          className="text-xs pl-2 py-1 rounded-full flex items-center gap-1"
-          style={{ background: hexToRgba(member.color, 0.12), color: member.color, border: `1px solid ${hexToRgba(member.color, 0.35)}`, paddingRight: isManagement ? 4 : 8 }}
-        >
-          {s.name} · {s.level}
-          {isManagement && (
-            <button type="button" onClick={() => onRemove(s.name)} aria-label={`Remove ${s.name}`} className="flex items-center" style={{ opacity: 0.7 }}>
-              <X size={11} />
-            </button>
-          )}
-        </span>
-      ))}
-      {member.skills.length === 0 && !adding && <span className="text-xs italic" style={{ color: TOKENS.textFaint }}>No skills recorded yet</span>}
-      {isManagement && (
-        adding ? (
-          <form onSubmit={submit} className="flex items-center gap-1 flex-wrap">
-            <select value={choice} onChange={(e) => setChoice(e.target.value)} className="rounded-lg px-1.5 py-1 text-xs" style={inputStyle}>
-              <option value="__new">+ New skill…</option>
-              {availableSkills.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-            </select>
-            {choice === '__new' && (
-              <input
-                autoFocus
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Skill name"
-                className="rounded-lg px-1.5 py-1 text-xs"
-                style={{ ...inputStyle, width: 110 }}
-              />
-            )}
-            <select value={level} onChange={(e) => setLevel(e.target.value)} className="rounded-lg px-1.5 py-1 text-xs" style={inputStyle}>
-              {SKILL_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
-            </select>
-            <button type="submit" className="px-2 py-1 rounded-lg text-xs font-medium" style={{ background: TOKENS.blue, color: '#0B0D11' }}>Add</button>
-            <button type="button" onClick={() => setAdding(false)} className="px-1.5 py-1 text-xs" style={{ color: TOKENS.textFaint }}>Cancel</button>
-          </form>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setAdding(true)}
-            className="text-xs px-2 py-1 rounded-full flex items-center gap-1"
-            style={{ background: TOKENS.surface2, color: TOKENS.textMuted, border: `1px dashed ${TOKENS.border}` }}
-          >
-            <Plus size={11} /> Skill
-          </button>
-        )
-      )}
-    </div>
-  );
-}
-
 function AssigneePicker({ team, value, onChange }) {
   const [open, setOpen] = useState(false);
 
@@ -715,7 +610,7 @@ function AssigneePicker({ team, value, onChange }) {
   );
 }
 
-function AddTaskForm({ team, onAdd, onCancel }) {
+function AddTaskForm({ team, skillsList, levelFor, onAdd, onCancel }) {
   const [title, setTitle] = useState('');
   const [assignees, setAssignees] = useState(team.length ? [team[0].id] : []);
   const [priority, setPriority] = useState('medium');
@@ -730,8 +625,8 @@ function AddTaskForm({ team, onAdd, onCancel }) {
   }
 
   const suggestions = useMemo(
-    () => suggestAssigneesFromSkills(title, team).filter((s) => !assignees.includes(s.member.id)),
-    [title, team, assignees]
+    () => suggestAssigneesFromSkills(title, team, skillsList, levelFor).filter((s) => !assignees.includes(s.member.id)),
+    [title, team, assignees, skillsList, levelFor]
   );
 
   return (
@@ -764,7 +659,7 @@ function AddTaskForm({ team, onAdd, onCancel }) {
               className="flex items-center gap-1 px-2 py-1 rounded-full"
               style={{ background: hexToRgba(s.member.color, 0.12), color: s.member.color, border: `1px solid ${hexToRgba(s.member.color, 0.35)}` }}
             >
-              {s.member.name.split(' ')[0]} · {s.skill.name} ({s.skill.level})
+              {s.member.name.split(' ')[0]} · {s.skill.name}
             </button>
           ))}
         </div>
@@ -1427,6 +1322,13 @@ export default function App() {
   const [logs, setLogs] = useState(INITIAL_LOGS);
   const [team, setTeam] = useState(INITIAL_TEAM);
   const [skillsList, setSkillsList] = useState(INITIAL_SKILLS);
+  const [memberSkillLevels, setMemberSkillLevels] = useState({}); // { [memberId]: { [skillId]: level } }
+  const levelFor = (memberId, skillId) => memberSkillLevels[memberId]?.[skillId] ?? 0;
+  function skillSummary(memberId) {
+    const targeted = skillsList.filter((s) => s.targetLevel > 0);
+    const gaps = targeted.filter((s) => levelFor(memberId, s.id) < s.targetLevel);
+    return { total: targeted.length, atTarget: targeted.length - gaps.length, criticalGaps: gaps.filter((s) => s.critical).length };
+  }
   const [comments, setComments] = useState(INITIAL_COMMENTS);
   const [openTaskId, setOpenTaskId] = useState(null);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
@@ -1571,6 +1473,7 @@ export default function App() {
         { data: commentRows, error: commentErr },
         { data: roleRow, error: roleErr },
         { data: skillRows, error: skillErr },
+        { data: memberSkillRows, error: memberSkillErr },
       ] = await Promise.all([
         supabase.from('projects').select('*'),
         supabase.from('tasks').select('*'),
@@ -1578,7 +1481,8 @@ export default function App() {
         supabase.from('team_members').select('*'),
         supabase.from('task_comments').select('*'),
         supabase.from('app_roles').select('access_tier').eq('auth_user_id', session.user.id).maybeSingle(),
-        supabase.from('skills').select('*').order('name'),
+        supabase.from('skills').select('*').order('sort_order'),
+        supabase.from('member_skills').select('*'),
       ]);
       if (projErr) console.error('Failed to load projects', projErr);
       if (taskErr) console.error('Failed to load tasks', taskErr);
@@ -1587,12 +1491,18 @@ export default function App() {
       if (commentErr) console.error('Failed to load comments', commentErr);
       if (roleErr) console.error('Failed to load access tier — defaulting to operator', roleErr);
       if (skillErr) console.error('Failed to load skills', skillErr);
+      if (memberSkillErr) console.error('Failed to load skill levels', memberSkillErr);
       setProjects((projectRows || []).map(projectFromRow));
       setLogs((logRows || []).map(logFromRow));
       setTeam((teamRows || []).map(memberFromRow));
       setComments((commentRows || []).map(commentFromRow));
       setIsManagement(roleRow?.access_tier === 'management');
       setSkillsList((skillRows || []).map(skillFromRow));
+      const levels = {};
+      for (const row of memberSkillRows || []) {
+        (levels[row.member_id] ||= {})[row.skill_id] = row.level;
+      }
+      setMemberSkillLevels(levels);
       setLoading(false);
 
       // Auto-escalate: any open task that's gone overdue and isn't already
@@ -1884,63 +1794,19 @@ export default function App() {
     }
   }
 
-  // Adds a new name to the shared skill list (the Skill Matrix's columns) —
-  // separate from assigning it to anyone. `skills.name` is unique, so a
-  // duplicate is a harmless no-op from the database's point of view; the
-  // caller-side check just avoids a pointless round-trip for the common case
-  // of picking an existing name.
-  async function addSkillToList(name) {
-    if (skillsList.some((s) => s.name.toLowerCase() === name.toLowerCase())) return;
-    const skill = { id: crypto.randomUUID(), name };
-    setSkillsList((prev) => [...prev, skill].sort((a, b) => a.name.localeCompare(b.name)));
-    const { error } = await supabase.from('skills').insert(skillToRow(skill));
+  // One matrix cell saved as one row. Upsert keyed on (member, skill), so the
+  // whole matrix never has to be rewritten to change a single level.
+  async function setSkillLevel(memberId, skillId, level) {
+    const prev = memberSkillLevels;
+    setMemberSkillLevels((p) => ({ ...p, [memberId]: { ...(p[memberId] || {}), [skillId]: level } }));
+    const { error } = await supabase
+      .from('member_skills')
+      .upsert({ member_id: memberId, skill_id: skillId, level }, { onConflict: 'member_id,skill_id' });
     if (error) {
-      console.error('Failed to add skill to list', error);
-      setSkillsList((prev) => prev.filter((s) => s.id !== skill.id));
-      pushToast('Failed to add skill — try again.');
+      console.error('Failed to save skill level', error);
+      setMemberSkillLevels(prev);
+      pushToast('Failed to save skill level — try again.');
     }
-  }
-
-  async function updateMemberSkills(memberId, skills) {
-    const prevTeam = team;
-    setTeam((prev) => prev.map((m) => (m.id === memberId ? { ...m, skills } : m)));
-    const { error } = await supabase.from('team_members').update({ skills }).eq('id', memberId);
-    if (error) {
-      console.error('Failed to update skills', error);
-      setTeam(prevTeam);
-      pushToast('Failed to update skills — try again.');
-    }
-  }
-
-  // Assigning a skill that doesn't exist on the shared list yet creates it
-  // there too, so the matrix gets a new column instead of silently dropping
-  // the name — this is the one path where a brand-new skill enters the list.
-  async function addSkillToMember(memberId, name, level) {
-    if (!skillsList.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
-      await addSkillToList(name);
-    }
-    const member = team.find((m) => m.id === memberId);
-    if (!member || member.skills.some((s) => s.name === name)) return;
-    updateMemberSkills(memberId, [...member.skills, { name, level }]);
-  }
-
-  function removeSkillFromMember(memberId, name) {
-    const member = team.find((m) => m.id === memberId);
-    if (!member) return;
-    updateMemberSkills(memberId, member.skills.filter((s) => s.name !== name));
-  }
-
-  // Sets (or changes) one skill's level for a member directly — used by the
-  // Skill Matrix's own cells, so a level can be set/edited right there
-  // instead of only via the per-member card editor.
-  function setMemberSkillLevel(memberId, name, level) {
-    const member = team.find((m) => m.id === memberId);
-    if (!member) return;
-    const exists = member.skills.some((s) => s.name === name);
-    const skills = exists
-      ? member.skills.map((s) => (s.name === name ? { ...s, level } : s))
-      : [...member.skills, { name, level }];
-    updateMemberSkills(memberId, skills);
   }
 
   // Team-wide workload stats — deliberately span every project, not just the active one.
@@ -2289,6 +2155,8 @@ export default function App() {
                     {showAddTask && (
                       <AddTaskForm
                         team={team}
+                        skillsList={skillsList}
+                        levelFor={levelFor}
                         onAdd={(t) => { addTask(t); setShowAddTask(false); }}
                         onCancel={() => setShowAddTask(false)}
                       />
@@ -2447,97 +2315,109 @@ export default function App() {
                       </div>
                       <div style={{ borderTop: `1px solid ${TOKENS.border}`, paddingTop: 10 }}>
                         <p className="text-xs font-medium uppercase tracking-wider mb-1.5" style={{ color: TOKENS.textFaint }}>Skills</p>
-                        <MemberSkillsEditor
-                          member={m}
-                          skillsList={skillsList}
-                          isManagement={isManagement}
-                          onAdd={(name, level) => addSkillToMember(m.id, name, level)}
-                          onRemove={(name) => removeSkillFromMember(m.id, name)}
-                        />
+                        {(() => {
+                          const sum = skillSummary(m.id);
+                          return (
+                            <div className="flex flex-wrap items-center gap-3 text-xs" style={{ color: TOKENS.textMuted }}>
+                              <span><span className="font-mono" style={{ color: TOKENS.text }}>{sum.atTarget}/{sum.total}</span> at target</span>
+                              {sum.criticalGaps > 0 && (
+                                <span style={{ color: TOKENS.coral }}>{sum.criticalGaps} critical gap{sum.criticalGaps === 1 ? '' : 's'}</span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   ))}
                 </div>
 
                 <div className="rounded-xl p-4 mb-8" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
-                  <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
                     <h2 className="font-display font-semibold text-sm flex items-center gap-2">
                       <Grid3x3 size={15} /> Skill matrix
                     </h2>
-                    {isManagement && <AddSkillToListForm onAdd={addSkillToList} />}
+                    <p className="text-xs" style={{ color: TOKENS.textFaint }}>0 = none · 4 = expert · amber = below target · red = critical gap</p>
                   </div>
+                  <p className="text-xs mb-3" style={{ color: TOKENS.textFaint }}>
+                    {isManagement ? 'Click a level to change it — each change saves straight away.' : 'Only management can change levels.'}
+                  </p>
                   {skillsList.length === 0 ? (
-                    <p className="text-xs italic" style={{ color: TOKENS.textFaint }}>No skills recorded yet.</p>
+                    <p className="text-xs italic" style={{ color: TOKENS.textFaint }}>No skills loaded yet.</p>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="text-xs" style={{ borderCollapse: 'collapse', width: '100%' }}>
                         <thead>
                           <tr>
-                            <th
-                              className="text-left px-3 py-2 sticky left-0 font-medium"
-                              style={{ background: TOKENS.surface, color: TOKENS.textFaint, borderBottom: `1px solid ${TOKENS.border}` }}
-                            >
-                              Team member
-                            </th>
-                            {skillsList.map((s) => (
-                              <th
-                                key={s.id}
-                                className="px-3 py-2 font-medium text-left"
-                                style={{ color: TOKENS.textFaint, borderBottom: `1px solid ${TOKENS.border}`, whiteSpace: 'nowrap' }}
-                              >
-                                {s.name}
+                            <th className="text-left px-3 py-2 sticky left-0 font-medium" style={{ background: TOKENS.surface, color: TOKENS.textFaint, borderBottom: `1px solid ${TOKENS.border}` }}>Skill</th>
+                            <th className="px-2 py-2 font-medium" style={{ color: TOKENS.textFaint, borderBottom: `1px solid ${TOKENS.border}` }}>Priority</th>
+                            <th className="px-2 py-2 font-medium" style={{ color: TOKENS.textFaint, borderBottom: `1px solid ${TOKENS.border}` }}>Target</th>
+                            <th className="px-2 py-2 font-medium" style={{ color: TOKENS.textFaint, borderBottom: `1px solid ${TOKENS.border}` }}>Critical</th>
+                            {team.map((m) => (
+                              <th key={m.id} className="px-2 py-2 font-medium text-center" style={{ color: TOKENS.text, borderBottom: `1px solid ${TOKENS.border}`, whiteSpace: 'nowrap' }}>
+                                <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ background: m.color }} />
+                                {m.name.split(' ')[0]}
                               </th>
                             ))}
+                            <th className="px-2 py-2 font-medium text-center" style={{ color: TOKENS.textFaint, borderBottom: `1px solid ${TOKENS.border}`, whiteSpace: 'nowrap' }}>At target</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {team.map((m) => (
-                            <tr key={m.id}>
-                              <td
-                                className="px-3 py-2 sticky left-0 font-medium"
-                                style={{ background: TOKENS.surface, color: TOKENS.text, borderBottom: `1px solid ${TOKENS.border}`, whiteSpace: 'nowrap' }}
-                              >
-                                {m.name}
-                              </td>
-                              {skillsList.map((s) => {
-                                const entry = m.skills.find((ms) => ms.name === s.name);
-                                const levelIdx = entry ? SKILL_LEVELS.indexOf(entry.level) : -1;
-                                const cellStyle = {
-                                  background: levelIdx >= 0 ? hexToRgba(TOKENS.teal, 0.15 + levelIdx * 0.2) : entry ? hexToRgba(TOKENS.textMuted, 0.15) : 'transparent',
-                                  color: levelIdx >= 0 ? TOKENS.teal : TOKENS.textMuted,
-                                };
-                                return (
-                                  <td key={s.id} className="px-3 py-2" style={{ borderBottom: `1px solid ${TOKENS.border}` }}>
-                                    {isManagement ? (
-                                      // Lets a level be set/changed/cleared right from the
-                                      // matrix, not just from the per-member card editor.
-                                      <select
-                                        value={entry && levelIdx >= 0 ? entry.level : ''}
-                                        onChange={(e) => {
-                                          const v = e.target.value;
-                                          if (v === '') removeSkillFromMember(m.id, s.name);
-                                          else setMemberSkillLevel(m.id, s.name, v);
-                                        }}
-                                        className="rounded-full px-2 py-0.5 text-xs"
-                                        style={{ ...cellStyle, border: `1px solid ${entry ? 'transparent' : TOKENS.border}` }}
-                                        title={entry && levelIdx < 0 ? `Custom level: ${entry.level}` : undefined}
+                          {(() => {
+                            const groups = [];
+                            for (const s of skillsList) {
+                              const last = groups[groups.length - 1];
+                              if (last && last.category === s.category) last.skills.push(s);
+                              else groups.push({ category: s.category, skills: [s] });
+                            }
+                            return groups.map((g) => (
+                              <React.Fragment key={g.category}>
+                                <tr>
+                                  <td colSpan={team.length + 5} className="px-3 pt-4 pb-1 font-display font-semibold" style={{ color: TOKENS.textMuted }}>{g.category}</td>
+                                </tr>
+                                {g.skills.map((s) => {
+                                  const atTarget = team.filter((m) => levelFor(m.id, s.id) >= s.targetLevel).length;
+                                  return (
+                                    <tr key={s.id}>
+                                      <td
+                                        className="px-3 py-1.5 sticky left-0"
+                                        title={s.description || undefined}
+                                        style={{ background: TOKENS.surface, color: TOKENS.text, borderBottom: `1px solid ${TOKENS.border}`, minWidth: 240 }}
                                       >
-                                        <option value="">—</option>
-                                        {entry && levelIdx < 0 && <option value={entry.level}>{entry.level}</option>}
-                                        {SKILL_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
-                                      </select>
-                                    ) : entry ? (
-                                      <span className="inline-block px-2 py-0.5 rounded-full whitespace-nowrap" style={cellStyle}>
-                                        {entry.level}
-                                      </span>
-                                    ) : (
-                                      <span style={{ color: TOKENS.border }}>—</span>
-                                    )}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
+                                        {s.name}
+                                      </td>
+                                      <td className="px-2 py-1.5 text-center" style={{ borderBottom: `1px solid ${TOKENS.border}`, color: SKILL_PRIORITY_COLOR[s.priority] }}>{s.priority}</td>
+                                      <td className="px-2 py-1.5 text-center font-mono" style={{ borderBottom: `1px solid ${TOKENS.border}`, color: TOKENS.textMuted }}>{s.targetLevel}</td>
+                                      <td className="px-2 py-1.5 text-center" style={{ borderBottom: `1px solid ${TOKENS.border}`, color: s.critical ? TOKENS.coral : TOKENS.textFaint }}>{s.critical ? 'Yes' : '—'}</td>
+                                      {team.map((m) => {
+                                        const level = levelFor(m.id, s.id);
+                                        const gap = s.targetLevel > 0 && level < s.targetLevel;
+                                        const tone = gap ? (s.critical ? TOKENS.coral : TOKENS.amber) : level > 0 ? TOKENS.teal : TOKENS.textFaint;
+                                        return (
+                                          <td key={m.id} className="px-2 py-1.5 text-center" style={{ borderBottom: `1px solid ${TOKENS.border}`, background: gap && s.critical ? hexToRgba(TOKENS.coral, 0.1) : 'transparent' }}>
+                                            {isManagement ? (
+                                              <select
+                                                value={level}
+                                                onChange={(e) => setSkillLevel(m.id, s.id, Number(e.target.value))}
+                                                className="rounded-md px-1 py-0.5 text-xs font-mono"
+                                                style={{ ...inputStyle, width: 56, color: tone }}
+                                              >
+                                                {SKILL_LEVEL_OPTIONS.map((l) => <option key={l} value={l}>{l}</option>)}
+                                              </select>
+                                            ) : (
+                                              <span className="font-mono" style={{ color: tone }}>{level}</span>
+                                            )}
+                                          </td>
+                                        );
+                                      })}
+                                      <td className="px-2 py-1.5 text-center font-mono" style={{ borderBottom: `1px solid ${TOKENS.border}`, color: TOKENS.textMuted }}>
+                                        {s.targetLevel > 0 ? `${atTarget}/${team.length}` : '—'}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </React.Fragment>
+                            ));
+                          })()}
                         </tbody>
                       </table>
                     </div>
