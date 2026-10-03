@@ -1324,6 +1324,7 @@ export default function App() {
   const [skillsList, setSkillsList] = useState(INITIAL_SKILLS);
   const [memberSkillLevels, setMemberSkillLevels] = useState({}); // { [memberId]: { [skillId]: level } }
   const levelFor = (memberId, skillId) => memberSkillLevels[memberId]?.[skillId] ?? 0;
+  const [focusMemberId, setFocusMemberId] = useState(null);
   function skillSummary(memberId) {
     const targeted = skillsList.filter((s) => s.targetLevel > 0);
     const gaps = targeted.filter((s) => levelFor(memberId, s.id) < s.targetLevel);
@@ -2338,9 +2339,21 @@ export default function App() {
                     </h2>
                     <p className="text-xs" style={{ color: TOKENS.textFaint }}>0 = none · 4 = expert · amber = below target · red = critical gap</p>
                   </div>
-                  <p className="text-xs mb-3" style={{ color: TOKENS.textFaint }}>
-                    {isManagement ? 'Click a level to change it — each change saves straight away.' : 'Only management can change levels.'}
-                  </p>
+                  <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                    <p className="text-xs" style={{ color: TOKENS.textFaint }}>
+                      {isManagement ? 'Click a level to change it — each change saves straight away.' : 'Only management can change levels.'} Click a name to focus on that person.
+                    </p>
+                    {focusMemberId && (
+                      <button
+                        type="button"
+                        onClick={() => setFocusMemberId(null)}
+                        className="text-xs px-2.5 py-1 rounded-lg"
+                        style={{ background: TOKENS.surface2, color: TOKENS.textMuted, border: `1px solid ${TOKENS.border}` }}
+                      >
+                        Show all
+                      </button>
+                    )}
+                  </div>
                   {skillsList.length === 0 ? (
                     <p className="text-xs italic" style={{ color: TOKENS.textFaint }}>No skills loaded yet.</p>
                   ) : (
@@ -2352,12 +2365,30 @@ export default function App() {
                             <th className="px-2 py-2 font-medium" style={{ color: TOKENS.textFaint, borderBottom: `1px solid ${TOKENS.border}` }}>Priority</th>
                             <th className="px-2 py-2 font-medium" style={{ color: TOKENS.textFaint, borderBottom: `1px solid ${TOKENS.border}` }}>Target</th>
                             <th className="px-2 py-2 font-medium" style={{ color: TOKENS.textFaint, borderBottom: `1px solid ${TOKENS.border}` }}>Critical</th>
-                            {team.map((m) => (
-                              <th key={m.id} className="px-2 py-2 font-medium text-center" style={{ color: TOKENS.text, borderBottom: `1px solid ${TOKENS.border}`, whiteSpace: 'nowrap' }}>
-                                <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ background: m.color }} />
-                                {m.name.split(' ')[0]}
-                              </th>
-                            ))}
+                            {team.map((m) => {
+                              const focused = focusMemberId === m.id;
+                              const dimmed = focusMemberId !== null && !focused;
+                              return (
+                                <th
+                                  key={m.id}
+                                  onClick={() => setFocusMemberId(focused ? null : m.id)}
+                                  title={focused ? 'Click to clear focus' : `Focus ${m.name.split(' ')[0]}`}
+                                  className="px-2 py-2 font-medium text-center cursor-pointer select-none"
+                                  style={{
+                                    color: TOKENS.text,
+                                    borderBottom: `1px solid ${TOKENS.border}`,
+                                    whiteSpace: 'nowrap',
+                                    background: focused ? hexToRgba(m.color, 0.18) : 'transparent',
+                                    boxShadow: focused ? `inset 0 -2px 0 ${m.color}` : 'none',
+                                    opacity: dimmed ? 0.35 : 1,
+                                    transition: 'opacity 0.2s, background 0.2s',
+                                  }}
+                                >
+                                  <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ background: m.color }} />
+                                  {m.name.split(' ')[0]}
+                                </th>
+                              );
+                            })}
                             <th className="px-2 py-2 font-medium text-center" style={{ color: TOKENS.textFaint, borderBottom: `1px solid ${TOKENS.border}`, whiteSpace: 'nowrap' }}>At target</th>
                           </tr>
                         </thead>
@@ -2393,7 +2424,16 @@ export default function App() {
                                         const gap = s.targetLevel > 0 && level < s.targetLevel;
                                         const tone = gap ? (s.critical ? TOKENS.coral : TOKENS.amber) : level > 0 ? TOKENS.teal : TOKENS.textFaint;
                                         return (
-                                          <td key={m.id} className="px-2 py-1.5 text-center" style={{ borderBottom: `1px solid ${TOKENS.border}`, background: gap && s.critical ? hexToRgba(TOKENS.coral, 0.1) : 'transparent' }}>
+                                          <td
+                                            key={m.id}
+                                            className="px-2 py-1.5 text-center"
+                                            style={{
+                                              borderBottom: `1px solid ${TOKENS.border}`,
+                                              background: focusMemberId === m.id ? hexToRgba(m.color, 0.08) : gap && s.critical ? hexToRgba(TOKENS.coral, 0.1) : 'transparent',
+                                              opacity: focusMemberId !== null && focusMemberId !== m.id ? 0.35 : 1,
+                                              transition: 'opacity 0.2s',
+                                            }}
+                                          >
                                             {isManagement ? (
                                               <select
                                                 value={level}
