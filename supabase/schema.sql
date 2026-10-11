@@ -306,7 +306,7 @@ delete from logs;
 --    existing [{name, level}] shape — this doesn't migrate it, just gives
 --    future entries a shared source of names. Readable by everyone (matrix
 --    is visible team-wide, matching skills already being visible on Team
---    today); adding to the list is management-only, matching every other
+--    today); managing the list is management-only, matching every other
 --    "editing the team" action in this schema.
 create table if not exists skills (
   id uuid primary key,
@@ -357,6 +357,18 @@ create policy "read member skills" on member_skills
 create policy "management writes member skills" on member_skills
   for all using (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'))
   with check (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'));
+
+-- Skill definitions can be added, edited, or removed only by management.
+drop policy if exists "management inserts skills" on skills;
+drop policy if exists "management updates skills" on skills;
+drop policy if exists "management deletes skills" on skills;
+create policy "management inserts skills" on skills
+  for insert with check (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'));
+create policy "management updates skills" on skills
+  for update using (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'))
+  with check (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'));
+create policy "management deletes skills" on skills
+  for delete using (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'));
 
 -- Reseed the skill list from the sheet. member_skills is cleared first so
 -- nothing references a skill row being removed.
@@ -525,3 +537,65 @@ create policy "read skill decisions" on skill_level_decisions
   for select using (auth.role() = 'authenticated');
 create policy "management writes skill decisions" on skill_level_decisions
   for insert with check (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'));
+
+create or replace function public.record_skill_level_decision(
+  p_decision_id uuid,
+  p_member_id text,
+  p_skill_id uuid,
+  p_from_level int,
+  p_to_level int,
+  p_decision text,
+  p_decided_at timestamptz
+)
+returns void
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_current_level int;
+begin
+  if auth.uid() is null or not exists (
+    select 1 from public.app_roles r
+    where r.auth_user_id = auth.uid()
+      and r.access_tier = 'management'
+  ) then
+    raise exception 'Management access is required to decide skill level-ups.'
+      using errcode = '42501';
+  end if;
+
+  if p_decision not in ('approved', 'rejected')
+    or p_from_level not between 0 and 3
+    or p_to_level <> p_from_level + 1 then
+    raise exception 'Invalid skill level-up decision.';
+  end if;
+
+  select coalesce(ms.level, 0)
+  into v_current_level
+  from (select 1) as seed
+  left join public.member_skills ms
+    on ms.member_id = p_member_id and ms.skill_id = p_skill_id;
+
+  if v_current_level <> p_from_level then
+    raise exception 'This level-up is out of date. Refresh the Team page and review the current skill level.';
+  end if;
+
+  if p_decision = 'approved' then
+    insert into public.member_skills (member_id, skill_id, level)
+    values (p_member_id, p_skill_id, p_to_level)
+    on conflict (member_id, skill_id)
+    do update set level = excluded.level;
+  end if;
+
+  insert into public.skill_level_decisions (
+    id, member_id, skill_id, from_level, to_level, decision, decided_at
+  )
+  values (
+    p_decision_id, p_member_id, p_skill_id, p_from_level, p_to_level, p_decision, p_decided_at
+  );
+end;
+$$;
+
+revoke all on function public.record_skill_level_decision(uuid, text, uuid, int, int, text, timestamptz) from public;
+revoke all on function public.record_skill_level_decision(uuid, text, uuid, int, int, text, timestamptz) from anon;
+grant execute on function public.record_skill_level_decision(uuid, text, uuid, int, int, text, timestamptz) to authenticated;

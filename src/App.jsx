@@ -616,7 +616,7 @@ function TaskListPopover({ tasks, projects, onSelectTask }) {
   );
 }
 
-function UpskillPanel({ proposals, isManagement, onDecide }) {
+function UpskillPanel({ proposals, isManagement, savingProposalKey, onDecide }) {
   return (
     <div className="rounded-xl p-4 mb-8" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
       <h2 className="font-display font-semibold text-sm flex items-center gap-2 mb-1">
@@ -634,8 +634,24 @@ function UpskillPanel({ proposals, isManagement, onDecide }) {
           </div>
           {isManagement && (
             <div className="flex gap-1.5 flex-shrink-0">
-              <button type="button" onClick={() => onDecide(p, true)} className="px-2.5 py-1.5 rounded-lg text-xs font-medium" style={{ background: TOKENS.blue, color: '#0B0D11' }}>Approve</button>
-              <button type="button" onClick={() => onDecide(p, false)} className="px-2.5 py-1.5 rounded-lg text-xs font-medium" style={{ background: TOKENS.surface2, color: TOKENS.textMuted, border: `1px solid ${TOKENS.border}` }}>Reject</button>
+              <button
+                type="button"
+                onClick={() => onDecide(p, true)}
+                disabled={savingProposalKey !== null}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50"
+                style={{ background: TOKENS.blue, color: '#0B0D11' }}
+              >
+                {savingProposalKey === `${p.member.id}-${p.skill.id}` ? 'Saving…' : 'Approve'}
+              </button>
+              <button
+                type="button"
+                onClick={() => onDecide(p, false)}
+                disabled={savingProposalKey !== null}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50"
+                style={{ background: TOKENS.surface2, color: TOKENS.textMuted, border: `1px solid ${TOKENS.border}` }}
+              >
+                Reject
+              </button>
             </div>
           )}
         </div>
@@ -750,6 +766,87 @@ function AddMemberForm({ onAdd }) {
       <button type="submit" className="px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5 flex-shrink-0" style={{ background: TOKENS.blue, color: '#0B0D11' }}>
         <Plus size={14} /> Add member
       </button>
+    </form>
+  );
+}
+
+function SkillEditor({ skill, onSave, onCancel }) {
+  const [name, setName] = useState(skill?.name || '');
+  const [category, setCategory] = useState(skill?.category || '');
+  const [description, setDescription] = useState(skill?.description || '');
+  const [targetLevel, setTargetLevel] = useState(skill?.targetLevel ?? 0);
+  const [priority, setPriority] = useState(skill?.priority || 'Medium');
+  const [critical, setCritical] = useState(skill?.critical || false);
+  const [saving, setSaving] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!name.trim() || !category.trim() || saving) return;
+    setSaving(true);
+    const saved = await onSave({
+      ...skill,
+      name: name.trim(),
+      category: category.trim(),
+      description: description.trim(),
+      targetLevel: Number(targetLevel),
+      priority,
+      critical,
+    });
+    setSaving(false);
+    if (saved) onCancel();
+  }
+
+  return (
+    <form onSubmit={submit} className="rounded-lg p-3 mb-3 space-y-2" style={{ background: TOKENS.surface2, border: `1px solid ${TOKENS.border}` }}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <input
+          autoFocus
+          required
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Skill name"
+          className="rounded-lg px-3 py-2 text-sm"
+          style={inputStyle}
+        />
+        <input
+          required
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          placeholder="Category"
+          className="rounded-lg px-3 py-2 text-sm"
+          style={inputStyle}
+        />
+      </div>
+      <input
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="Description (optional)"
+        className="w-full rounded-lg px-3 py-2 text-sm"
+        style={inputStyle}
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-2 text-xs" style={{ color: TOKENS.textMuted }}>
+          Target
+          <select value={targetLevel} onChange={(e) => setTargetLevel(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle}>
+            {SKILL_LEVEL_OPTIONS.map((level) => <option key={level} value={level}>{level}</option>)}
+          </select>
+        </label>
+        <select value={priority} onChange={(e) => setPriority(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle} aria-label="Skill priority">
+          {['High', 'Medium', 'Low'].map((level) => <option key={level} value={level}>{level} priority</option>)}
+        </select>
+        <label className="flex items-center gap-2 text-xs" style={{ color: TOKENS.textMuted }}>
+          <input type="checkbox" checked={critical} onChange={(e) => setCritical(e.target.checked)} />
+          Critical skill
+        </label>
+        <div className="flex items-center gap-2 ml-auto">
+          <button type="button" onClick={onCancel} disabled={saving} className="px-3 py-1.5 rounded-lg text-xs" style={{ color: TOKENS.textMuted }}>
+            Cancel
+          </button>
+          <button type="submit" disabled={saving || !name.trim() || !category.trim()} className="px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50" style={{ background: TOKENS.blue, color: '#0B0D11' }}>
+            {saving ? 'Saving…' : skill ? 'Save skill' : 'Add skill'}
+          </button>
+        </div>
+      </div>
     </form>
   );
 }
@@ -1514,6 +1611,8 @@ export default function App() {
   const [skillsList, setSkillsList] = useState(INITIAL_SKILLS);
   const [memberSkillLevels, setMemberSkillLevels] = useState({}); // { [memberId]: { [skillId]: level } }
   const [skillDecisions, setSkillDecisions] = useState([]);
+  const [savingUpskillKey, setSavingUpskillKey] = useState(null);
+  const [skillEditor, setSkillEditor] = useState(null);
   const levelFor = (memberId, skillId) => memberSkillLevels[memberId]?.[skillId] ?? 0;
   const [focusMemberId, setFocusMemberId] = useState(null);
   const [expandedMemberId, setExpandedMemberId] = useState(null);
@@ -2047,8 +2146,11 @@ export default function App() {
   }
 
   // The lead's decision on a suggested level-up. Approving also sets the level;
-  // either way the decision is logged, which restarts the completed-task count.
+  // the database function writes both changes atomically.
   async function decideUpskill(proposal, approved) {
+    const key = `${proposal.member.id}-${proposal.skill.id}`;
+    if (savingUpskillKey !== null) return;
+    setSavingUpskillKey(key);
     const row = {
       id: crypto.randomUUID(),
       member_id: proposal.member.id,
@@ -2058,15 +2160,34 @@ export default function App() {
       decision: approved ? 'approved' : 'rejected',
       decided_at: new Date().toISOString(),
     };
-    setSkillDecisions((prev) => [...prev, row]);
-    const { error } = await supabase.from('skill_level_decisions').insert(row);
-    if (error) {
-      console.error('Failed to save level-up decision', error);
-      setSkillDecisions((prev) => prev.filter((d) => d.id !== row.id));
-      pushToast('Failed to save the decision — try again.');
-      return;
+    try {
+      const { error } = await supabase.rpc('record_skill_level_decision', {
+        p_decision_id: row.id,
+        p_member_id: row.member_id,
+        p_skill_id: row.skill_id,
+        p_from_level: row.from_level,
+        p_to_level: row.to_level,
+        p_decision: row.decision,
+        p_decided_at: row.decided_at,
+      });
+      if (error) throw error;
+
+      setSkillDecisions((prev) => [...prev, row]);
+      if (approved) {
+        setMemberSkillLevels((prev) => ({
+          ...prev,
+          [proposal.member.id]: {
+            ...(prev[proposal.member.id] || {}),
+            [proposal.skill.id]: proposal.to,
+          },
+        }));
+      }
+    } catch (error) {
+      console.error(`Failed to ${approved ? 'approve' : 'reject'} level-up`, error);
+      pushToast(`Failed to ${approved ? 'approve' : 'reject'} level-up: ${error.message || 'Please try again.'}`);
+    } finally {
+      setSavingUpskillKey(null);
     }
-    if (approved) await setSkillLevel(proposal.member.id, proposal.skill.id, proposal.to);
   }
 
   // One matrix cell saved as one row. Upsert keyed on (member, skill), so the
@@ -2082,6 +2203,78 @@ export default function App() {
       setMemberSkillLevels(prev);
       pushToast('Failed to save skill level — try again.');
     }
+  }
+
+  async function saveSkill(skill) {
+    const duplicate = skillsList.some((item) =>
+      item.id !== skill.id && item.name.trim().toLocaleLowerCase() === skill.name.toLocaleLowerCase()
+    );
+    if (duplicate) {
+      pushToast('A skill with that name already exists.');
+      return false;
+    }
+
+    const isNew = !skill.id;
+    const id = skill.id || crypto.randomUUID();
+    const sortOrder = isNew
+      ? Math.max(0, ...skillsList.map((item) => item.sortOrder)) + 1
+      : skill.sortOrder;
+    const row = {
+      id,
+      name: skill.name,
+      category: skill.category,
+      description: skill.description || null,
+      target_level: skill.targetLevel,
+      critical: skill.critical,
+      priority: skill.priority,
+      sort_order: sortOrder,
+    };
+    const result = isNew
+      ? await supabase.from('skills').insert(row)
+      : await supabase.from('skills').update(row).eq('id', id).select('id').maybeSingle();
+    if (result.error || (!isNew && !result.data)) {
+      const error = result.error || new Error('Skill was not updated.');
+      console.error(`Failed to ${isNew ? 'add' : 'update'} skill`, error);
+      pushToast(`Failed to ${isNew ? 'add' : 'update'} skill — try again.`);
+      return false;
+    }
+    const savedSkill = skillFromRow(row);
+    setSkillsList((prev) => {
+      const next = [...prev.filter((item) => item.id !== id), savedSkill];
+      const categoryOrder = [...new Set(prev.map((item) => item.category))];
+      if (!categoryOrder.includes(savedSkill.category)) categoryOrder.push(savedSkill.category);
+      return next.sort((a, b) =>
+        categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category) || a.sortOrder - b.sortOrder
+      );
+    });
+    pushToast(isNew ? 'Skill added.' : 'Skill updated.');
+    return true;
+  }
+
+  async function deleteSkill(skill) {
+    const confirmed = window.confirm(
+      `Remove "${skill.name}" from the skill matrix? This also permanently deletes every member's level and the skill's level-up decision history.`
+    );
+    if (!confirmed) return;
+
+    const { data, error } = await supabase.from('skills').delete().eq('id', skill.id).select('id').maybeSingle();
+    if (error || !data) {
+      console.error('Failed to remove skill', error || new Error('Skill was not deleted.'));
+      pushToast('Failed to remove skill — try again.');
+      return;
+    }
+    setSkillsList((prev) => prev.filter((item) => item.id !== skill.id));
+    setMemberSkillLevels((prev) => {
+      const next = { ...prev };
+      for (const memberId of Object.keys(next)) {
+        const levels = { ...next[memberId] };
+        delete levels[skill.id];
+        next[memberId] = levels;
+      }
+      return next;
+    });
+    setSkillDecisions((prev) => prev.filter((decision) => decision.skill_id !== skill.id));
+    pushToast('Skill removed.');
   }
 
   // Team-wide workload stats — deliberately span every project, not just the active one.
@@ -2665,11 +2858,32 @@ export default function App() {
                     <h2 className="font-display font-semibold text-sm flex items-center gap-2">
                       <Grid3x3 size={15} /> Skill matrix
                     </h2>
-                    <p className="text-xs" style={{ color: TOKENS.textFaint }}>0 = none · 4 = expert · amber = below target · red = critical gap</p>
+                    <div className="flex items-center gap-3">
+                      <p className="text-xs" style={{ color: TOKENS.textFaint }}>0 = none · 4 = expert · amber = below target · red = critical gap</p>
+                      {isManagement && (
+                        <button
+                          type="button"
+                          onClick={() => setSkillEditor({})}
+                          disabled={Boolean(skillEditor)}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-40"
+                          style={{ background: hexToRgba(TOKENS.blue, 0.15), color: TOKENS.blue, border: `1px solid ${hexToRgba(TOKENS.blue, 0.4)}` }}
+                        >
+                          <Plus size={13} /> Add skill
+                        </button>
+                      )}
+                    </div>
                   </div>
+                  {skillEditor && (
+                    <SkillEditor
+                      key={skillEditor.id || 'new-skill'}
+                      skill={skillEditor.id ? skillEditor : null}
+                      onSave={saveSkill}
+                      onCancel={() => setSkillEditor(null)}
+                    />
+                  )}
                   <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                     <p className="text-xs" style={{ color: TOKENS.textFaint }}>
-                      {isManagement ? 'Click a level to change it — each change saves straight away.' : 'Only management can change levels.'} Click a name to focus on that person.
+                      {isManagement ? 'Add, edit, or remove skills, or click a level to change it — changes save straight away.' : 'Only management can change skills and levels.'} Click a name to focus on that person.
                     </p>
                     {focusMemberId && (
                       <button
@@ -2742,7 +2956,35 @@ export default function App() {
                                         title={s.description || undefined}
                                         style={{ background: TOKENS.surface, color: TOKENS.text, borderBottom: `1px solid ${TOKENS.border}`, minWidth: 240 }}
                                       >
-                                        {s.name}
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span>{s.name}</span>
+                                          {isManagement && (
+                                            <span className="flex items-center gap-1 flex-shrink-0">
+                                              <button
+                                                type="button"
+                                                onClick={() => setSkillEditor(s)}
+                                                disabled={Boolean(skillEditor)}
+                                                className="px-1.5 py-1 rounded disabled:opacity-40"
+                                                style={{ color: TOKENS.textMuted }}
+                                                aria-label={`Edit ${s.name}`}
+                                                title={`Edit ${s.name}`}
+                                              >
+                                                Edit
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => deleteSkill(s)}
+                                                disabled={Boolean(skillEditor)}
+                                                className="p-1 rounded disabled:opacity-40"
+                                                style={{ color: TOKENS.coral }}
+                                                aria-label={`Remove ${s.name}`}
+                                                title={`Remove ${s.name}`}
+                                              >
+                                                <Trash2 size={12} />
+                                              </button>
+                                            </span>
+                                          )}
+                                        </div>
                                       </td>
                                       <td className="px-2 py-1.5 text-center" style={{ borderBottom: `1px solid ${TOKENS.border}`, color: SKILL_PRIORITY_COLOR[s.priority] }}>{s.priority}</td>
                                       <td className="px-2 py-1.5 text-center font-mono" style={{ borderBottom: `1px solid ${TOKENS.border}`, color: TOKENS.textMuted }}>{s.targetLevel}</td>
@@ -2795,6 +3037,7 @@ export default function App() {
                 <UpskillPanel
                   proposals={upskillProposalsFor(team, tasks, skillsList, levelFor, skillDecisions)}
                   isManagement={isManagement}
+                  savingProposalKey={savingUpskillKey}
                   onDecide={decideUpskill}
                 />
 
