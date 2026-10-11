@@ -45,7 +45,6 @@ function initialsFromName(name) {
   const parts = name.trim().split(/\s+/);
   return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase();
 }
-
 // Surfaces members who are at target on a skill whose name matches the task
 // title, e.g. typing "Cognex DataMan backup" suggests whoever meets the target
 // for Cognex DataMan setup & backups.
@@ -282,6 +281,50 @@ const INITIAL_SKILLS = [];
 
 /* --------------------------------- helpers ---------------------------------- */
 
+const CAPACITY_HOURS_PER_WORKDAY = 7.5;
+
+function dateKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function capacityPeriodStart(period, date = new Date()) {
+  if (period === 'week') {
+    const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+    return start;
+  }
+  if (period === 'month') return new Date(date.getFullYear(), date.getMonth(), 1);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function capacityPeriodEnd(period, date = new Date()) {
+  const end = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  if (period === 'week') {
+    end.setDate(end.getDate() + (6 - ((end.getDay() + 6) % 7)));
+  } else if (period === 'month') {
+    end.setMonth(end.getMonth() + 1, 0);
+  }
+  return end;
+}
+
+function countWorkdays(start, end) {
+  let count = 0;
+  const day = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  while (day <= end) {
+    if (day.getDay() !== 0 && day.getDay() !== 6) count += 1;
+    day.setDate(day.getDate() + 1);
+  }
+  return count;
+}
+
+function formatHours(hours) {
+  return Number(hours.toFixed(1)).toLocaleString(undefined, { maximumFractionDigits: 1 });
+}
+
+function overtimeEntryFromRow(row) {
+  return { id: row.id, memberId: row.member_id, date: row.work_date, hours: Number(row.hours), note: row.note || '' };
+}
+
 function daysUntil(dateStr) {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -345,10 +388,10 @@ function projectToRow(p) {
   return { id: p.id, name: p.name, subtitle: p.subtitle, deadline: p.deadline, customer_id: p.customerId };
 }
 function taskFromRow(r) {
-  return { id: r.id, title: r.title, assignees: r.assignees, priority: r.priority, due: r.due, status: r.status, projectId: r.project_id, repeat: r.repeat || 'none', startDate: r.start_date || null };
+  return { id: r.id, title: r.title, assignees: r.assignees, priority: r.priority, due: r.due, status: r.status, projectId: r.project_id, repeat: r.repeat || 'none', startDate: r.start_date || null, estimateHours: Number(r.estimate_hours ?? 4) };
 }
 function taskToRow(t) {
-  return { id: t.id, title: t.title, assignees: t.assignees, priority: t.priority, due: t.due, status: t.status, project_id: t.projectId, repeat: t.repeat || 'none', start_date: t.startDate || null };
+  return { id: t.id, title: t.title, assignees: t.assignees, priority: t.priority, due: t.due, status: t.status, project_id: t.projectId, repeat: t.repeat || 'none', start_date: t.startDate || null, estimate_hours: t.estimateHours ?? 4 };
 }
 function logFromRow(r) {
   return { id: r.id, personId: r.person_id, note: r.note, tag: r.tag, createdAt: r.created_at };
@@ -904,11 +947,12 @@ function AddTaskForm({ team, skillsList, levelFor, onAdd, onCancel }) {
   const [due, setDue] = useState('');
   const [startDate, setStartDate] = useState('');
   const [repeat, setRepeat] = useState('none');
+  const [estimateHours, setEstimateHours] = useState('4');
 
   function submit(e) {
     e.preventDefault();
-    if (!title.trim() || !due || assignees.length === 0) return;
-    onAdd({ title: title.trim(), assignees, priority, due, repeat, startDate: startDate || null });
+    if (!title.trim() || !due || assignees.length === 0 || estimateHours.trim() === '' || !Number.isFinite(Number(estimateHours)) || Number(estimateHours) < 0 || Number(estimateHours) > 10000) return;
+    onAdd({ title: title.trim(), assignees, priority, due, repeat, startDate: startDate || null, estimateHours: Number(estimateHours) });
   }
 
   const suggestions = useMemo(
@@ -925,6 +969,11 @@ function AddTaskForm({ team, skillsList, levelFor, onAdd, onCancel }) {
         <option value="medium">Medium</option>
         <option value="low">Low</option>
       </select>
+      <label className="flex items-center gap-1 text-xs" style={{ color: TOKENS.textMuted }}>
+        Estimate
+        <input type="number" min="0" max="10000" step="0.5" value={estimateHours} onChange={(e) => setEstimateHours(e.target.value)} className="w-16 rounded-lg px-2 py-1.5 text-sm" style={inputStyle} aria-label="Estimated task hours" />
+        h
+      </label>
       <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle} title="Start date (optional — used for the Gantt view)" />
       <input type="date" required value={due} onChange={(e) => setDue(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle} title="Due date" />
       <select value={repeat} onChange={(e) => setRepeat(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle} title="Repeat">
@@ -1037,7 +1086,7 @@ function TaskCard({ task, members, onMove, onDragStart, onDelete, onOpen, canMov
   );
 }
 
-function TaskDetailModal({ task, project, members, team, comments, onClose, onAddComment, onDeleteComment, onUpdateStartDate }) {
+function TaskDetailModal({ task, project, members, team, comments, onClose, onAddComment, onDeleteComment, onUpdateStartDate, onUpdateEstimate }) {
   const [authorId, setAuthorId] = useState(team[0]?.id || '');
   const [body, setBody] = useState('');
   const tone = dueTone(task.due);
@@ -1081,6 +1130,24 @@ function TaskDetailModal({ task, project, members, team, comments, onClose, onAd
             {members.length === 0 && <span className="text-xs italic" style={{ color: TOKENS.textFaint }}>Unassigned</span>}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            <label className="flex items-center gap-1 text-xs" style={{ color: TOKENS.textFaint }}>
+              Estimate
+              <input
+                type="number"
+                min="0"
+                max="10000"
+                step="0.5"
+                value={task.estimateHours ?? 4}
+                onChange={(e) => {
+                  const hours = Number(e.target.value);
+                  if (e.target.value !== '' && Number.isFinite(hours) && hours >= 0 && hours <= 10000) onUpdateEstimate(task.id, hours);
+                }}
+                className="w-16 rounded px-1.5 py-0.5 text-xs"
+                style={inputStyle}
+                aria-label="Estimated task hours"
+              />
+              h
+            </label>
             <label className="flex items-center gap-1 text-xs" style={{ color: TOKENS.textFaint }}>
               Start
               <input
@@ -1599,6 +1666,99 @@ function WeeklyDigestPanel({ projects, tasks, team, comments, logs, accessToken,
   );
 }
 
+function ExtraHoursPanel({ team, entries, period, onAdd, onDelete }) {
+  const [memberId, setMemberId] = useState(team[0]?.id || '');
+  const [workDate, setWorkDate] = useState(() => dateKey(new Date()));
+  const [hours, setHours] = useState('');
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const today = dateKey(new Date());
+  const periodName = period === 'day' ? 'today' : period === 'week' ? 'this week' : 'this month';
+  useEffect(() => {
+    if (!team.some((member) => member.id === memberId)) setMemberId(team[0]?.id || '');
+  }, [team, memberId]);
+  const totals = entries.reduce((sum, entry) => {
+    sum[entry.memberId] = (sum[entry.memberId] || 0) + entry.hours;
+    return sum;
+  }, {});
+
+  async function submit(e) {
+    e.preventDefault();
+    const amount = Number(hours);
+    if (!memberId || !workDate || !Number.isFinite(amount) || amount <= 0 || amount > 24 || saving) return;
+    setSaving(true);
+    try {
+      const saved = await onAdd({ memberId, date: workDate, hours: amount, note: note.trim() });
+      if (saved) {
+        setHours('');
+        setNote('');
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl p-4 mb-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+        <h2 className="font-display font-semibold text-sm">Actual extra hours</h2>
+        <span className="text-xs" style={{ color: TOKENS.textFaint }}>Logged {periodName}</span>
+      </div>
+      <p className="text-xs mb-3" style={{ color: TOKENS.textFaint }}>
+        Record hours worked beyond the standard 37.5-hour week. These are tracked separately from estimated spare capacity.
+      </p>
+      <form onSubmit={submit} className="flex flex-wrap items-end gap-2 mb-3">
+        <label className="grid gap-1 text-xs" style={{ color: TOKENS.textMuted }}>
+          Team member
+          <select required value={memberId} onChange={(e) => setMemberId(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle}>
+            {team.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs" style={{ color: TOKENS.textMuted }}>
+          Date
+          <input required type="date" max={today} value={workDate} onChange={(e) => setWorkDate(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle} />
+        </label>
+        <label className="grid gap-1 text-xs" style={{ color: TOKENS.textMuted }}>
+          Extra hours
+          <input required type="number" min="0.25" max="24" step="0.25" value={hours} onChange={(e) => setHours(e.target.value)} className="w-24 rounded-lg px-2 py-1.5 text-sm" style={inputStyle} />
+        </label>
+        <label className="grid gap-1 flex-1 min-w-40 text-xs" style={{ color: TOKENS.textMuted }}>
+          Note (optional)
+          <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle} placeholder="Reason or admin reference" />
+        </label>
+        <button type="submit" disabled={saving || team.length === 0} className="px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50" style={{ background: TOKENS.blue, color: '#0B0D11' }}>{saving ? 'Saving…' : 'Log hours'}</button>
+      </form>
+      <div className="flex flex-wrap gap-2 mb-3">
+        {team.map((member) => (
+          <span key={member.id} className="rounded-lg px-2.5 py-1.5 text-xs" style={{ background: TOKENS.surface2, color: TOKENS.textMuted }}>
+            {member.name}: <span className="font-mono" style={{ color: TOKENS.text }}>{formatHours(totals[member.id] || 0)}h</span>
+          </span>
+        ))}
+      </div>
+      {entries.length === 0 ? (
+        <p className="text-xs italic" style={{ color: TOKENS.textFaint }}>No extra hours logged {periodName}.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {entries.map((entry) => {
+            const member = team.find((m) => m.id === entry.memberId);
+            return (
+              <div key={entry.id} className="flex items-center gap-3 rounded-lg px-3 py-2 text-xs" style={{ background: TOKENS.surface2 }}>
+                <span className="font-mono flex-shrink-0" style={{ color: TOKENS.textMuted }}>{entry.date}</span>
+                <span className="font-medium" style={{ color: member?.color || TOKENS.text }}>{member?.name || 'Former member'}</span>
+                <span className="font-mono" style={{ color: TOKENS.text }}>{formatHours(entry.hours)}h</span>
+                {entry.note && <span className="flex-1 truncate" style={{ color: TOKENS.textFaint }}>{entry.note}</span>}
+                <button type="button" onClick={() => onDelete(entry)} title="Delete extra-hours entry" aria-label={`Delete ${entry.hours} extra hours for ${member?.name || 'former member'} on ${entry.date}`} className="ml-auto" style={{ color: TOKENS.textFaint }}>
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ----------------------------------- app ------------------------------------ */
 
 export default function App() {
@@ -1607,6 +1767,7 @@ export default function App() {
   const [projects, setProjects] = useState(INITIAL_PROJECTS);
   const [tasks, setTasks] = useState(INITIAL_TASKS);
   const [logs, setLogs] = useState(INITIAL_LOGS);
+  const [overtimeEntries, setOvertimeEntries] = useState([]);
   const [team, setTeam] = useState(INITIAL_TEAM);
   const [skillsList, setSkillsList] = useState(INITIAL_SKILLS);
   const [memberSkillLevels, setMemberSkillLevels] = useState({}); // { [memberId]: { [skillId]: level } }
@@ -1616,6 +1777,7 @@ export default function App() {
   const levelFor = (memberId, skillId) => memberSkillLevels[memberId]?.[skillId] ?? 0;
   const [focusMemberId, setFocusMemberId] = useState(null);
   const [expandedMemberId, setExpandedMemberId] = useState(null);
+  const [capacityPeriod, setCapacityPeriod] = useState('week');
   function skillSummary(memberId) {
     const targeted = skillsList.filter((s) => s.targetLevel > 0);
     const gaps = targeted.filter((s) => levelFor(memberId, s.id) < s.targetLevel);
@@ -1823,6 +1985,31 @@ export default function App() {
     })();
   }, [session]);
 
+  useEffect(() => {
+    if (!session || !isManagement) {
+      setOvertimeEntries([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const start = dateKey(capacityPeriodStart(capacityPeriod));
+    const end = dateKey(new Date());
+    (async () => {
+      const { data, error } = await supabase
+        .from('overtime_entries')
+        .select('id, member_id, work_date, hours, note')
+        .gte('work_date', start)
+        .lte('work_date', end)
+        .order('work_date', { ascending: false });
+      if (error) {
+        console.error('Failed to load extra-hours entries', error);
+        if (!cancelled) pushToast('Failed to load extra-hours entries — check the database setup.');
+        return;
+      }
+      if (!cancelled) setOvertimeEntries((data || []).map(overtimeEntryFromRow));
+    })();
+    return () => { cancelled = true; };
+  }, [session, isManagement, capacityPeriod]);
+
   // Creates this period's admin tasks for everyone once the window is open.
   // Runs from the management account; admin_key makes repeat runs no-ops.
   const adminRanForRef = useRef(null);
@@ -1925,9 +2112,9 @@ export default function App() {
   // task" form relies on that default) but can be overridden — e.g. the PM
   // advisor proposes tasks for whichever project it's talking about, which
   // isn't necessarily the one currently selected.
-  async function addTask({ title, assignees, priority, due, repeat, startDate, projectId = selectedProjectId }) {
+  async function addTask({ title, assignees, priority, due, repeat, startDate, estimateHours = 4, projectId = selectedProjectId }) {
     const id = `t${tasks.length}-${Math.round(Math.random() * 1e6)}`;
-    const task = { id, title, assignees, priority, due, status: 'backlog', projectId, repeat: repeat || 'none', startDate: startDate || null };
+    const task = { id, title, assignees, priority, due, status: 'backlog', projectId, repeat: repeat || 'none', startDate: startDate || null, estimateHours };
     setTasks((prev) => [...prev, task]);
     const { error } = await supabase.from('tasks').insert(taskToRow(task));
     if (error) {
@@ -1948,6 +2135,7 @@ export default function App() {
       status: 'backlog',
       projectId: task.projectId,
       repeat: task.repeat,
+      estimateHours: task.estimateHours ?? 4,
     };
     setTasks((prev) => [...prev, nextTask]);
     const { error } = await supabase.from('tasks').insert(taskToRow(nextTask));
@@ -2006,6 +2194,51 @@ export default function App() {
       setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, startDate: prevStartDate } : t)));
       pushToast('Failed to update start date — try again.');
     }
+  }
+  async function updateTaskEstimate(id, estimateHours) {
+    const original = tasks.find((t) => t.id === id);
+    if (!original || !Number.isFinite(estimateHours) || estimateHours < 0 || estimateHours > 10000) return;
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, estimateHours } : t)));
+    const { error } = await supabase.from('tasks').update({ estimate_hours: estimateHours }).eq('id', id);
+    if (error) {
+      console.error('Failed to update task estimate', error);
+      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, estimateHours: original.estimateHours ?? 4 } : t)));
+      pushToast('Failed to update task estimate — try again.');
+    }
+  }
+  async function addOvertimeEntry({ memberId, date, hours, note }) {
+    if (!isManagement || !team.some((member) => member.id === memberId) || date > dateKey(new Date()) || !Number.isFinite(hours) || hours <= 0 || hours > 24) {
+      pushToast('Enter a valid team member, date, and extra-hours amount.');
+      return false;
+    }
+    const row = {
+      id: crypto.randomUUID(),
+      member_id: memberId,
+      work_date: date,
+      hours,
+      note: note || null,
+      created_by: session.user.id,
+    };
+    const { error } = await supabase.from('overtime_entries').insert(row);
+    if (error) {
+      console.error('Failed to save extra-hours entry', error);
+      pushToast('Failed to save extra-hours entry — try again.');
+      return false;
+    }
+    setOvertimeEntries((prev) => [overtimeEntryFromRow(row), ...prev].sort((a, b) => b.date.localeCompare(a.date)));
+    pushToast('Extra hours logged.');
+    return true;
+  }
+  async function deleteOvertimeEntry(entry) {
+    if (!isManagement || !window.confirm(`Delete ${formatHours(entry.hours)} extra hours logged for ${entry.date}?`)) return;
+    const { error } = await supabase.from('overtime_entries').delete().eq('id', entry.id);
+    if (error) {
+      console.error('Failed to delete extra-hours entry', error);
+      pushToast('Failed to delete extra-hours entry — try again.');
+      return;
+    }
+    setOvertimeEntries((prev) => prev.filter((item) => item.id !== entry.id));
+    pushToast('Extra-hours entry deleted.');
   }
   async function moveTask(id, direction) {
     let newStatus = null;
@@ -2279,6 +2512,11 @@ export default function App() {
 
   // Team-wide workload stats — deliberately span every project, not just the active one.
   const memberStats = useMemo(() => {
+    const today = new Date();
+    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const end = capacityPeriodEnd(capacityPeriod, start);
+    const periodEndKey = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+    const capacityHours = countWorkdays(start, end) * CAPACITY_HOURS_PER_WORKDAY;
     return team.map((m) => {
       const mine = tasks.filter((t) => t.assignees.includes(m.id));
       const done = mine.filter((t) => t.status === 'done').length;
@@ -2289,12 +2527,20 @@ export default function App() {
       const dueSoonTasks = active.filter((t) => { const d = daysUntil(t.due); return d >= 0 && d <= 3; });
       const overdue = overdueTasks.length;
       const dueSoon = dueSoonTasks.length;
+      const allocatedHours = tasks
+        .filter((t) => t.status !== 'done' && t.assignees.includes(m.id) && t.due <= periodEndKey)
+        .reduce((sum, t) => sum + (Number(t.estimateHours ?? 4) / Math.max(t.assignees.length, 1)), 0);
+      const spareHours = Math.max(0, capacityHours - allocatedHours);
+      const sparePct = capacityHours ? Math.round((spareHours / capacityHours) * 100) : 0;
       let tone = TOKENS.teal, pulse = false;
       if (overdue > 0) { tone = TOKENS.coral; pulse = true; }
       else if (dueSoon > 0) { tone = TOKENS.amber; pulse = true; }
-      return { ...m, done, total, pct, active, overdueTasks, dueSoonTasks, overdue, dueSoon, tone, pulse };
+      const capacityTone = allocatedHours > capacityHours
+        ? TOKENS.coral
+        : capacityHours > 0 && sparePct <= 25 ? TOKENS.amber : TOKENS.teal;
+      return { ...m, done, total, pct, active, overdueTasks, dueSoonTasks, overdue, dueSoon, capacityHours, allocatedHours, spareHours, sparePct, capacityTone, tone, pulse };
     });
-  }, [team, tasks]);
+  }, [team, tasks, capacityPeriod]);
 
   const totalWorkload = memberStats.reduce((sum, m) => sum + m.total, 0);
 
@@ -2574,9 +2820,9 @@ export default function App() {
                       <p className="text-xs truncate mb-1" style={{ color: TOKENS.textFaint }}>{m.role}</p>
                       <div className="flex items-center gap-1.5">
                         <div className="flex-1 rounded-full overflow-hidden" style={{ height: 3, background: TOKENS.surface2 }}>
-                          <div style={{ width: `${m.pct}%`, height: '100%', background: m.tone, transition: 'width 0.4s ease' }} />
+                          <div style={{ width: `${m.sparePct}%`, height: '100%', background: m.capacityTone, transition: 'width 0.4s ease' }} />
                         </div>
-                        <span className="font-mono flex-shrink-0" style={{ fontSize: 10, color: TOKENS.textFaint }}><StatNumber value={m.pct} /></span>
+                        <span className="font-mono flex-shrink-0" style={{ fontSize: 10, color: TOKENS.textFaint }}>{formatHours(m.spareHours)}h</span>
                       </div>
                     </div>
                   </button>
@@ -2682,6 +2928,31 @@ export default function App() {
 
             {activeTab === 'team' && (
               <div>
+                <div className="rounded-xl p-4 mb-4 flex items-center justify-between gap-3 flex-wrap" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.border}` }}>
+                  <div>
+                    <h2 className="font-display font-semibold text-sm">Estimated spare capacity</h2>
+                    <p className="text-xs mt-1" style={{ color: TOKENS.textFaint }}>
+                      Based on a 37.5-hour week (7.5 hours per weekday). Open task estimates due by period end are shared evenly between assignees; overdue tasks count in this period. Tasks not re-estimated still use a provisional 4h estimate.
+                    </p>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs flex-shrink-0" style={{ color: TOKENS.textMuted }}>
+                    Period
+                    <select value={capacityPeriod} onChange={(e) => setCapacityPeriod(e.target.value)} className="rounded-lg px-2 py-1.5 text-sm" style={inputStyle}>
+                      <option value="day">Today</option>
+                      <option value="week">This week</option>
+                      <option value="month">This month</option>
+                    </select>
+                  </label>
+                </div>
+                {isManagement && (
+                  <ExtraHoursPanel
+                    team={team}
+                    entries={overtimeEntries}
+                    period={capacityPeriod}
+                    onAdd={addOvertimeEntry}
+                    onDelete={deleteOvertimeEntry}
+                  />
+                )}
                 <WeeklyDigestPanel projects={projects} tasks={tasks} team={team} comments={comments} logs={logs} accessToken={session.access_token} isManagement={isManagement} />
 
                 {isManagement && (
@@ -2727,8 +2998,8 @@ export default function App() {
                           </div>
                           <span className="text-xs" style={{ color: TOKENS.textMuted }}>{m.role}</span>
                         </div>
-                        <RadialProgress pct={m.pct} size={44} stroke={4} color={m.tone} trackColor={themeHex.border}>
-                          <span className="font-mono" style={{ fontSize: 10, color: TOKENS.text }}><StatNumber value={m.pct} /></span>
+                        <RadialProgress pct={m.sparePct} size={44} stroke={4} color={m.capacityTone} trackColor={themeHex.border}>
+                          <span className="font-mono" style={{ fontSize: 10, color: TOKENS.text }}>{formatHours(m.spareHours)}h</span>
                         </RadialProgress>
                         {isManagement && (
                           <button onClick={() => deleteMember(m.id)} aria-label={`Remove ${m.name}`} title="Remove member" style={{ color: TOKENS.textMuted }} className="flex-shrink-0">
@@ -2737,7 +3008,7 @@ export default function App() {
                         )}
                       </div>
                       <div className="flex items-center gap-4 text-xs mb-3 flex-wrap" style={{ color: TOKENS.textMuted }}>
-                        <span className="font-mono">{m.done}/{m.total} done</span>
+                        <span className="font-mono">{formatHours(m.spareHours)}h spare · {formatHours(m.allocatedHours)}h planned / {formatHours(m.capacityHours)}h capacity</span>
                         {m.overdue > 0 && (
                           <div className="relative">
                             <button
@@ -2838,7 +3109,7 @@ export default function App() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs font-display font-semibold truncate">{m.name}</p>
-                                <p className="font-mono" style={{ fontSize: 10, color: TOKENS.textMuted }}>{m.pct}% · {m.overdue} overdue</p>
+                                <p className="font-mono" style={{ fontSize: 10, color: TOKENS.textMuted }}>{formatHours(m.spareHours)}h spare · {m.overdue} overdue</p>
                               </div>
                             </button>
                           ))}
@@ -3376,6 +3647,7 @@ export default function App() {
           onAddComment={(authorId, body) => addComment(openTask.id, authorId, body)}
           onDeleteComment={deleteComment}
           onUpdateStartDate={updateTaskStartDate}
+          onUpdateEstimate={updateTaskEstimate}
         />
       )}
     </div>

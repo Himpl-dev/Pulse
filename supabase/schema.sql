@@ -90,6 +90,11 @@ alter table tasks add column if not exists repeat text not null default 'none';
 --    as a single-day marker at `due` rather than guessing a start date.
 alter table tasks add column if not exists start_date date;
 
+-- 8a. Estimated effort in hours, used for team capacity planning. Existing
+--     tasks default to four hours until someone updates their estimate.
+alter table tasks add column if not exists estimate_hours numeric(7,1) not null default 4
+  check (estimate_hours >= 0);
+
 -- 9. Management vs. operator access tiers. A user with no row here is an
 --    operator by default (fail-safe) — only management accounts need a row.
 --    Deliberately no insert/update/delete policy for `authenticated`: role
@@ -516,6 +521,23 @@ join team_members t on t.name = x.member_name;
 --     "this template, for this person, in this period", so generating again
 --     for the same period never creates a duplicate.
 alter table tasks add column if not exists admin_key text unique;
+
+-- 22a. Actual extra hours are a management-only record for admin purposes;
+--      keep them separate from planned task estimates and standard capacity.
+create table if not exists overtime_entries (
+  id uuid primary key,
+  member_id text not null,
+  work_date date not null,
+  hours numeric(5,2) not null check (hours > 0 and hours <= 24),
+  note text,
+  created_by uuid not null references auth.users(id),
+  created_at timestamptz not null default now()
+);
+alter table overtime_entries enable row level security;
+drop policy if exists "management only" on overtime_entries;
+create policy "management only" on overtime_entries
+  for all using (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'))
+  with check (exists (select 1 from app_roles r where r.auth_user_id = auth.uid() and r.access_tier = 'management'));
 
 -- 23. Level-up decisions. The app suggests a level-up once enough completed
 --     tasks build a skill; only the team lead can approve or reject it. Each
