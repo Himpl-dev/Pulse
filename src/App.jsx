@@ -17,6 +17,7 @@ import { useUrlTab } from './hooks/useUrlTab';
 import { useCountUp } from './hooks/useCountUp';
 import { CommandPalette } from './components/CommandPalette';
 import { AdminPanel } from './components/AdminPanel';
+import { ResourceGuruPanel } from './components/ResourceGuruPanel';
 import { OnboardingEmptyState } from './components/OnboardingEmptyState';
 import { GanttChart } from './components/GanttChart';
 import { HRPanel } from './components/HRPanel';
@@ -197,12 +198,13 @@ const TABS = [
   { id: 'worldmap', label: 'World Map', icon: Globe2 },
   { id: 'logs', label: 'Logs', icon: NotebookPen },
   { id: 'admin', label: 'Admin', icon: ShieldCheck },
+  { id: 'resource-guru', label: 'Resource Guru', icon: Calendar },
 ];
 
 // Tabs only management can see — filtered out of nav/palette, and their
 // content is gated a second time at the render site (defense in depth; the
 // real security boundary is Supabase RLS, not this list).
-const MANAGEMENT_ONLY_TABS = new Set(['logs', 'admin']);
+const MANAGEMENT_ONLY_TABS = new Set(['logs', 'admin', 'resource-guru']);
 
 // Logs is pulled from the app entirely for now (2026-10-01) — raised as an
 // HR/data-handling concern (no authorship on entries, subjects can't see
@@ -3608,6 +3610,14 @@ export default function App() {
                 <AdminPanel accessToken={session.access_token} />
               ) : (
                 <ManagementOnlyNotice feature="Admin" />
+              )
+            )}
+
+            {activeTab === 'resource-guru' && (
+              isManagement ? (
+                <ResourceGuruPanel accessToken={session.access_token} />
+              ) : (
+                <ManagementOnlyNotice feature="Resource Guru" />
               )
             )}
           </div>

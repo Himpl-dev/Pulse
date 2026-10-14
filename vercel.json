@@ -3,6 +3,10 @@
     {
       "path": "/api/keep-alive",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/resource-guru-sync",
+      "schedule": "0 7 * * *"
     }
   ]
 }
