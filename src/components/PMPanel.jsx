@@ -7,7 +7,7 @@ const PRIORITY_COLOR = { high: TOKENS.coral, medium: TOKENS.amber, low: TOKENS.b
 
 // Cross-project advisor chat, built on the shared AdvisorChat shell. The
 // "proposals" strip is PM-specific — driven by Claude's tool-use in
-// api/pm-advisor.js (management callers only) — so it's passed in via
+// the PM handler (management callers only) — so it's passed in via
 // AdvisorChat's `extra` slot rather than living in the shared component.
 export function PMPanel({ accessToken, onCreateTask }) {
   const [proposals, setProposals] = useState([]);
@@ -21,7 +21,7 @@ export function PMPanel({ accessToken, onCreateTask }) {
   return (
     <AdvisorChat
       table="pm_messages"
-      endpoint="/api/pm-advisor"
+      endpoint="/api/advisor?type=pm"
       accessToken={accessToken}
       icon={Compass}
       iconColor={TOKENS.teal}

@@ -7,7 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 
 export const config = { maxDuration: 30 };
 
-// Customers aren't a database table (see the same note in api/sales-advisor.js)
+// Customers aren't a database table (see the same note in lib/advisors/sales-advisor.js)
 // — duplicated here from src/App.jsx's CUSTOMERS, just for resolving a
 // selected project's customer name into the generated document.
 const CUSTOMERS = {
