@@ -16,6 +16,10 @@ The management-only Resource Guru panel uses OAuth 2.0 to read bookings from the
 3. In Resource Guru's Developer Center, update the app website URL and Redirect URI to the deployed dashboard and callback. Replace the old `http://localhost/oauth`; the redirect URI must match exactly.
 4. Deploy the application, sign in as a Pulse management user, open **Resource Guru**, and select **Connect Resource Guru**. Approve the read-only scopes, then run the initial sync.
 
-Keep the Resource Guru client secret and Supabase service-role key in server-side environment settings. Never prefix them with `VITE_`, put them in browser code, commit them, or share them in chat. The SQL migration must be applied before the first connection. For local integration testing, use `vercel dev` and register a matching local callback URI.
+Keep the Resource Guru client secret and Supabase service-role key in server-side environment settings. Never prefix them with `VITE_`, put them in browser code, commit them, or share them in chat. The SQL migration must be applied before the first connection. For local integration testing, run `vercel dev` from the project root and register a matching local callback URI. Plain `npm run dev` starts only Vite and does not serve the `/api` functions this integration needs.
 
 The configured Vercel cron runs daily at 07:00 UTC. More frequent polling depends on the Vercel plan; a Resource Guru webhook could later make booking updates more immediate, while tasks are not included in the webhook event list from the supplied API documentation.
+
+## Troubleshooting sync errors
+
+If a manual sync reports `Resource Guru API request failed (403)`, Resource Guru denied access to the endpoint shown in the error (bookings, tasks, resources, or projects). Check that the connected Resource Guru user can access that data and that the confidential app has the corresponding read permission enabled. If the app's OAuth permissions changed after connecting, disconnect and reconnect Resource Guru to grant a token with the updated permissions.

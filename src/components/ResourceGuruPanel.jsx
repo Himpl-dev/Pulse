@@ -38,7 +38,14 @@ export function ResourceGuruPanel({ accessToken }) {
         ...options.headers,
       },
     });
-    const result = await response.json();
+    let result;
+    try {
+      result = await response.json();
+    } catch {
+      throw new Error(
+        "Resource Guru's API returned an invalid response. For local development, run `vercel dev` instead of `npm run dev`; plain Vite does not serve the /api functions."
+      );
+    }
     if (!response.ok) throw new Error(result.error || 'Resource Guru request failed');
     return result;
   }, [accessToken]);
