@@ -22,4 +22,4 @@ The configured Vercel cron runs daily at 07:00 UTC. More frequent polling depend
 
 ## Troubleshooting sync errors
 
-If a manual sync reports `Resource Guru API request failed (403)`, Resource Guru denied access to the endpoint shown in the error (bookings, tasks, resources, or projects). Check that the connected Resource Guru user can access that data and that the confidential app has the corresponding read permission enabled. If the app's OAuth permissions changed after connecting, disconnect and reconnect Resource Guru to grant a token with the updated permissions.
+If Resource Guru denies access to the Gantt tasks endpoint, Pulse still syncs bookings, resources, and projects and shows that tasks were skipped. To include tasks, check that the connected Resource Guru user can access planning data and that the confidential app has the corresponding read permission enabled. If the app's OAuth permissions changed after connecting, disconnect and reconnect Resource Guru to grant a token with the updated permissions. A 403 from any other endpoint still fails the sync and is reported with the denied endpoint.

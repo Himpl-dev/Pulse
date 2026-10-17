@@ -91,8 +91,15 @@ export function ResourceGuruPanel({ accessToken }) {
     setNotice('');
     try {
       const result = await request('sync', { method: 'POST' });
-      setNotice(`Synced ${result.bookingCount} bookings and ${result.taskCount} tasks.`);
+      setNotice(result.tasksUnavailable
+        ? `Synced ${result.bookingCount} bookings. Resource Guru denied access to Gantt tasks, so they were skipped.`
+        : `Synced ${result.bookingCount} bookings and ${result.taskCount} tasks.`);
       await loadStatus();
+      if (result.tasksUnavailable) {
+        setData((current) => current?.sync
+          ? { ...current, sync: { ...current.sync, tasksUnavailable: true } }
+          : current);
+      }
     } catch (err) {
       setError(err.message || 'Resource Guru sync failed');
     } finally {
@@ -214,7 +221,11 @@ export function ResourceGuruPanel({ accessToken }) {
             <h3 className="mb-3 text-sm font-semibold" style={{ color: TOKENS.text }}>
               Gantt tasks <span style={{ color: TOKENS.textFaint }}>({data.sync.task_count})</span>
             </h3>
-            {tasks.length === 0 ? (
+            {data.sync.tasksUnavailable ? (
+              <p className="text-sm" style={{ color: TOKENS.textFaint }}>
+                Resource Guru denied access to Gantt tasks. Bookings and other schedule data synced successfully.
+              </p>
+            ) : tasks.length === 0 ? (
               <p className="text-sm" style={{ color: TOKENS.textFaint }}>No active Gantt tasks found.</p>
             ) : (
               <div className="max-h-[32rem] space-y-2 overflow-y-auto">
