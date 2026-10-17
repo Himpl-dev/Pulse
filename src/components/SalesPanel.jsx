@@ -6,12 +6,12 @@ import { AdvisorChat } from './AdvisorChat';
 // Private sales advisor chat — vision-hardware capabilities (Cognex, Zebra,
 // SICK, Keyence, Teledyne FLIR) and next-step recommendations for customers
 // evaluating or trialling a solution, grounded in the app's customer/project
-// data server-side (see api/sales-advisor.js).
+// data server-side (see lib/advisors/sales-advisor.js).
 export function SalesPanel({ accessToken }) {
   return (
     <AdvisorChat
       table="sales_messages"
-      endpoint="/api/sales-advisor"
+      endpoint="/api/advisor?type=sales"
       accessToken={accessToken}
       icon={Handshake}
       iconColor={TOKENS.amber}
